@@ -1,0 +1,23 @@
+#!/bin/sh
+
+[ "$ACTION" = "add" ] || exit 0
+
+. /lib/functions.sh
+. /lib/functions/system.sh
+
+case "$(board_name)" in
+zyxel,vmg8825-b50b)
+	base_mac=$(mtd_get_mac_binary cferom 0x106a0)
+	[ -n "$base_mac" ] || exit 0
+	case "$DEVPATH" in
+	*0001:01:00.0*)
+		macaddr_add "$base_mac" 1 > "/sys${DEVPATH}/macaddress"
+		;;
+	*0000:01:00.0*)
+		macaddr_add "$base_mac" 2 > "/sys${DEVPATH}/macaddress"
+		;;
+	esac
+	;;
+esac
+
+exit 0

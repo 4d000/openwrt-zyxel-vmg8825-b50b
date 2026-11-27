@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# Enable firewall4 flow offloading with FLOW_OFFLOAD_XMIT_DIRECT bridge bypass;
+# Disable generic packet_steering so our hotplug scripts maintain the verified
+# 2-stage dual-core pipeline: eth0 IRQ 30 on CPU1, eth0 RPS=1 (CPU0), Wi-Fi RPS=3.
+uci -q set firewall.@defaults[0].flow_offloading='1'
+uci -q set firewall.@defaults[0].flow_offloading_hw='1'
+uci -q commit firewall
+
+uci -q set network.globals.packet_steering='0'
+uci -q commit network
+/etc/init.d/packet_steering disable 2>/dev/null || true
+
+exit 0

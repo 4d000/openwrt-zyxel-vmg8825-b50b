@@ -1,0 +1,29 @@
+--- a/drivers/net/ethernet/broadcom/Kconfig
++++ b/drivers/net/ethernet/broadcom/Kconfig
+@@ -62,6 +62,14 @@ config BCM4908_ENET
+ 	  This driver supports Ethernet controller integrated into Broadcom
+ 	  BCM4908 family SoCs.
+ 
++config BCM63138_CONDUIT
++	tristate "Broadcom BCM63138 DSA conduit netdev support"
++	depends on ARCH_BCMBCA || COMPILE_TEST
++	default y if ARCH_BCMBCA
++	help
++	  This driver provides DSA conduit netdev support for Broadcom
++	  BCM63138 family SoCs.
++
+ config BCM63XX_ENET
+ 	tristate "Broadcom 63xx internal mac support"
+ 	depends on BCM63XX
+--- a/drivers/net/ethernet/broadcom/Makefile
++++ b/drivers/net/ethernet/broadcom/Makefile
+@@ -5,6 +5,9 @@
+ 
+ obj-$(CONFIG_B44) += b44.o
+ obj-$(CONFIG_BCM4908_ENET) += bcm4908_enet.o
++obj-$(CONFIG_BCM63138_CONDUIT) += bcm63138_conduit.o bcm63138_flow_offload.o bcm63138_rdp/
++CFLAGS_bcm63138_conduit.o += -I$(src)/bcm63138_rdp/include -I$(src)/bcm63138_rdp/include/rdp -I$(src)/bcm63138_rdp/include/rdpa_gpl -I$(src)/bcm63138_rdp/rdp_subsystem -I$(src)/bcm63138_rdp/rdd -DDSL_63138 -DCONFIG_BCM963138 -DBCM_DSL_RDP -DLEGACY_RDP -D_BYTE_ORDER_LITTLE_ENDIAN_ -DUSE_SOC_BASE_ADDR
++CFLAGS_bcm63138_flow_offload.o += -I$(src)/bcm63138_rdp/include -I$(src)/bcm63138_rdp/include/rdp -I$(src)/bcm63138_rdp/include/rdpa_gpl -I$(src)/bcm63138_rdp/rdp_subsystem -I$(src)/bcm63138_rdp/rdd -DDSL_63138 -DCONFIG_BCM963138 -DBCM_DSL_RDP -DLEGACY_RDP -D_BYTE_ORDER_LITTLE_ENDIAN_ -DUSE_SOC_BASE_ADDR
+ obj-$(CONFIG_BCM63XX_ENET) += bcm63xx_enet.o
+ obj-$(CONFIG_BCMGENET) += genet/
+ obj-$(CONFIG_BNX2) += bnx2.o

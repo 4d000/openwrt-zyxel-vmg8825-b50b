@@ -1,0 +1,210 @@
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.h
+@@ -12,7 +12,7 @@
+ #define BRCMF_D2H_MSGRING_CONTROL_COMPLETE_MAX_ITEM	64
+ #define BRCMF_D2H_MSGRING_TX_COMPLETE_MAX_ITEM		1024
+ #define BRCMF_D2H_MSGRING_RX_COMPLETE_MAX_ITEM		1024
+-#define BRCMF_H2D_TXFLOWRING_MAX_ITEM			512
++#define BRCMF_H2D_TXFLOWRING_MAX_ITEM			1024
+ 
+ #define BRCMF_H2D_MSGRING_CONTROL_SUBMIT_ITEMSIZE	40
+ #define BRCMF_H2D_MSGRING_RXPOST_SUBMIT_ITEMSIZE	32
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/flowring.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/flowring.c
+@@ -18,8 +18,8 @@
+ #include "debug.h"
+ #include "common.h"
+ 
+-#define BRCMF_FLOWRING_HIGH		1024
+-#define BRCMF_FLOWRING_LOW		(BRCMF_FLOWRING_HIGH - 256)
++#define BRCMF_FLOWRING_HIGH		2048
++#define BRCMF_FLOWRING_LOW		(BRCMF_FLOWRING_HIGH - 512)
+ #define BRCMF_FLOWRING_INVALID_IFIDX	0xff
+ 
+ #define BRCMF_FLOWRING_HASH_AP(da, fifo, ifidx) (da[5] + fifo + ifidx * 16)
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -49,8 +49,8 @@
+ #define MSGBUF_TYPE_LPBK_DMAXFER		0x13
+ #define MSGBUF_TYPE_LPBK_DMAXFER_CMPLT		0x14
+ 
+-#define NR_TX_PKTIDS				2048
+-#define NR_RX_PKTIDS				1024
++#define NR_TX_PKTIDS				4096
++#define NR_RX_PKTIDS				2048
+ 
+ #define BRCMF_IOCTL_REQ_PKTID			0xFFFE
+ 
+@@ -66,11 +66,11 @@
+ #define BRCMF_MSGBUF_PKT_FLAGS_PRIO_SHIFT	5
+ 
+ #define BRCMF_MSGBUF_TX_FLUSH_CNT1		32
+-#define BRCMF_MSGBUF_TX_FLUSH_CNT2		96
++#define BRCMF_MSGBUF_TX_FLUSH_CNT2		128
+ 
+-#define BRCMF_MSGBUF_DELAY_TXWORKER_THRS	96
++#define BRCMF_MSGBUF_DELAY_TXWORKER_THRS	512
+ #define BRCMF_MSGBUF_TRICKLE_TXWORKER_THRS	32
+-#define BRCMF_MSGBUF_UPDATE_RX_PTR_THRS		48
++#define BRCMF_MSGBUF_UPDATE_RX_PTR_THRS		64
+ 
+ #define BRCMF_MAX_TXSTATUS_WAIT_RETRIES		10
+ 
+@@ -323,11 +323,27 @@
+ {
+ 	struct brcmf_msgbuf_pktid *array;
+ 	u32 count;
++	u32 map_len = skb->len - data_offset;
+ 
+ 	array = pktids->array;
+ 
++	/* Forwarded eth0 page_pool frames already have full payload in DDR */
++	if (pktids->direction == DMA_TO_DEVICE &&
++	    (data_offset == ETH_HLEN || data_offset == 0) &&
++	    skb->pp_recycle && skb->skb_iif &&
++	    !skb_cloned(skb) &&
++	    skb->ip_summed != CHECKSUM_PARTIAL) {
++		struct net_device *indev;
++
++		rcu_read_lock();
++		indev = dev_get_by_index_rcu(&init_net, skb->skb_iif);
++		if (indev && indev->dsa_ptr)
++			map_len = min(map_len, 160U);
++		rcu_read_unlock();
++	}
++
+ 	*physaddr = dma_map_single(dev, skb->data + data_offset,
+-				   skb->len - data_offset, pktids->direction);
++				   map_len, pktids->direction);
+ 
+ 	if (dma_mapping_error(dev, *physaddr)) {
+ 		brcmf_err("dma_map_single failed !!\n");
+@@ -366,24 +374,34 @@
+ 
+ 
+ static struct sk_buff *
+-brcmf_msgbuf_get_pktid(struct device *dev, struct brcmf_msgbuf_pktids *pktids,
+-		       u32 idx)
++brcmf_msgbuf_get_rx_pktid(struct device *dev,
++			  struct brcmf_msgbuf_pktids *pktids,
++			  u32 idx, u32 sync_len)
+ {
+ 	struct brcmf_msgbuf_pktid *pktid;
+ 	struct sk_buff *skb;
++	u32 map_len;
+ 
+ 	if (idx >= pktids->array_size) {
+ 		brcmf_err("Invalid packet id %d (max %d)\n", idx,
+ 			  pktids->array_size);
+ 		return NULL;
+ 	}
+-	if (pktids->array[idx].allocated.counter) {
++	if (atomic_read(&pktids->array[idx].allocated)) {
+ 		pktid = &pktids->array[idx];
+-		dma_unmap_single(dev, pktid->physaddr,
+-				 pktid->skb->len - pktid->data_offset,
+-				 pktids->direction);
++		map_len = pktid->skb->len - pktid->data_offset;
++		if (sync_len && sync_len < map_len) {
++			dma_sync_single_for_cpu(dev, pktid->physaddr, sync_len,
++						pktids->direction);
++			dma_unmap_single_attrs(dev, pktid->physaddr, map_len,
++					       pktids->direction,
++					       DMA_ATTR_SKIP_CPU_SYNC);
++		} else {
++			dma_unmap_single(dev, pktid->physaddr, map_len,
++					 pktids->direction);
++		}
+ 		skb = pktid->skb;
+-		pktid->allocated.counter = 0;
++		atomic_set_release(&pktid->allocated, 0);
+ 		return skb;
+ 	} else {
+ 		brcmf_err("Invalid packet id %d (not in use)\n", idx);
+@@ -393,6 +403,14 @@
+ }
+ 
+ 
++static struct sk_buff *
++brcmf_msgbuf_get_pktid(struct device *dev, struct brcmf_msgbuf_pktids *pktids,
++		       u32 idx)
++{
++	return brcmf_msgbuf_get_rx_pktid(dev, pktids, idx, 0);
++}
++
++
+ static void
+ brcmf_msgbuf_release_array(struct device *dev,
+ 			   struct brcmf_msgbuf_pktids *pktids)
+@@ -790,7 +808,7 @@
+ 			if (msgbuf->dhdhdr)
+ 				brcmf_msgbuf_dhdhdr_tx_unprep(skb, txhdr);
+ 			brcmf_flowring_reinsert(flow, flowid, skb);
+-			bphy_err(drvr, "No PKTID available !!\n");
++			brcmf_dbg(MSGBUF, "No PKTID available !!\n");
+ 			break;
+ 		}
+ 		ret_ptr = brcmf_commonring_reserve_for_write(commonring);
+@@ -857,7 +883,7 @@
+ 	commonring = msgbuf->flowrings[flowid];
+ 	if ((force) || (atomic_read(&commonring->outstanding_tx) <
+ 			BRCMF_MSGBUF_DELAY_TXWORKER_THRS))
+-		queue_work(msgbuf->txflow_wq, &msgbuf->txflow_work);
++		queue_work_on(1, msgbuf->txflow_wq, &msgbuf->txflow_work);
+ 
+ 	return 0;
+ }
+@@ -1231,8 +1250,11 @@
+ 	idx = le32_to_cpu(rx_complete->msg.request_id);
+ 	flags = le16_to_cpu(rx_complete->flags);
+ 
+-	skb = brcmf_msgbuf_get_pktid(msgbuf->drvr->bus_if->dev,
+-				     msgbuf->rx_pktids, idx);
++	skb = brcmf_msgbuf_get_rx_pktid(msgbuf->drvr->bus_if->dev,
++					msgbuf->rx_pktids, idx,
++					msgbuf->rx_metadata_offset +
++					(data_offset ?: msgbuf->rx_dataoffset) +
++					buflen);
+ 	if (!skb)
+ 		return;
+ 
+@@ -1444,11 +1466,13 @@
+ 	u32 flowid;
+ 	int qlen;
+ 
+-	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_RX_COMPLETE];
+-	brcmf_msgbuf_process_rx(msgbuf, buf);
+ 	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_TX_COMPLETE];
+ 	brcmf_msgbuf_process_rx(msgbuf, buf);
++	local_bh_disable();
++	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_RX_COMPLETE];
++	brcmf_msgbuf_process_rx(msgbuf, buf);
++	local_bh_enable();
+ 	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_CONTROL_COMPLETE];
+ 	brcmf_msgbuf_process_rx(msgbuf, buf);
+ 
+ 	for_each_set_bit(flowid, msgbuf->txstatus_done_map,
+@@ -1611,7 +1635,8 @@
+ 	if (!msgbuf)
+ 		goto fail;
+ 
+-	msgbuf->txflow_wq = create_singlethread_workqueue("msgbuf_txflow");
++	msgbuf->txflow_wq = alloc_workqueue("msgbuf_txflow",
++					    WQ_HIGHPRI | WQ_MEM_RECLAIM, 1);
+ 	if (msgbuf->txflow_wq == NULL) {
+ 		bphy_err(drvr, "workqueue creation failed\n");
+ 		goto fail;
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
+@@ -428,7 +428,10 @@
+ 	ifp->ndev->stats.rx_packets++;
+ 
+ 	brcmf_dbg(DATA, "rx proto=0x%X\n", ntohs(skb->protocol));
+-	netif_rx(skb);
++	if (in_softirq())
++		netif_receive_skb(skb);
++	else
++		netif_rx(skb);
+ }
+ 
+ void brcmf_netif_mon_rx(struct brcmf_if *ifp, struct sk_buff *skb)

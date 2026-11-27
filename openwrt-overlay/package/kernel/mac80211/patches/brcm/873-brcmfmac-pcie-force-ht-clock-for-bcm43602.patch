@@ -1,0 +1,39 @@
+From: OpenWrt VMG8825-B50B port
+Subject: [PATCH] brcmfmac: pcie: force HT clock before activating BCM43602 CR4
+
+On BCM43602/3 (e.g. ZyXEL VMG8825-B50B), the dongle backplane clock can
+remain on ALP or without BP_ON_HT after firmware download, causing the
+ARM CR4 firmware to hang during initialization.
+
+Force HT clock on the PCIe2 core via BCMA_CLKCTLST and wait for
+HAVEHT | BP_ON_HT before releasing CR4 from reset.
+
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -1906,6 +1906,26 @@ static void brcmf_pcie_buscore_activate(
+ {
+ 	struct brcmf_pciedev_info *devinfo = (struct brcmf_pciedev_info *)ctx;
+ 
++	if (chip->chip == BRCM_CC_43602_CHIP_ID) {
++		int retries = 200;
++		u32 val = 0;
++
++		brcmf_pcie_select_core(devinfo, BCMA_CORE_PCIE2);
++		brcmf_pcie_write_reg32(devinfo, BCMA_CLKCTLST,
++				       BCMA_CLKCTLST_FORCEHT);
++		while (retries--) {
++			val = brcmf_pcie_read_reg32(devinfo, BCMA_CLKCTLST);
++			if ((val & (BCMA_CLKCTLST_HAVEHT |
++				    BCMA_CLKCTLST_BP_ON_HT)) ==
++			    (BCMA_CLKCTLST_HAVEHT | BCMA_CLKCTLST_BP_ON_HT))
++				break;
++			udelay(100);
++		}
++		if (retries < 0)
++			dev_warn(&devinfo->pdev->dev,
++				 "HT clock not ready on BCM43602: 0x%08x\n", val);
++	}
++
+ 	brcmf_pcie_write_tcm32(devinfo, 0, rstvec);
+ }
+ 

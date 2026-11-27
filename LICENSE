@@ -1,0 +1,40 @@
+GNU GENERAL PUBLIC LICENSE
+Version 2, June 1991
+
+Copyright (C) 1989, 1991 Free Software Foundation, Inc.
+51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+
+Everyone is permitted to copy and distribute verbatim copies
+of this license document, but changing it is not allowed.
+
+This project is distributed under the GNU General Public License, version 2
+only (SPDX-License-Identifier: GPL-2.0-only), matching OpenWrt and the Linux
+kernel. The full text of GPL-2.0 is available at:
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+===============================================================================
+THIRD-PARTY LICENSES & LEGAL COMPLIANCE NOTICE
+===============================================================================
+
+1. OpenWrt & Linux Kernel Patches, Device Tree, Drivers, and Scripts:
+   Licensed under GPL-2.0-only (or dual GPL-2.0 / BSD-2-Clause where explicitly
+   noted in individual file SPDX headers).
+
+2. Broadcom BCM63138 RDP / Runner Driver & Microcode
+   (`openwrt-overlay/target/linux/bcm63xx_arm/files/drivers/net/ethernet/broadcom/bcm63138_rdp/`):
+   Derived from Broadcom's official GPL-released BCM63138 SDK (published under
+   Zyxel's GPL source release for VMG8825-B50B). All included source and
+   microcode files carry Broadcom's explicit `DUAL/GPL` (GPLv2) license header.
+
+3. Wi-Fi Radio Firmware (NOT stored in this repository):
+   Public builds produced by this repository use OpenWrt's standard
+   `linux-firmware` packages (`brcmfmac-firmware-4366c0-pcie` and
+   `brcmfmac-firmware-43602a1-pcie`), redistributed by upstream `linux-firmware`
+   under `LICENCE.broadcom_bcm43xx`.
+
+4. Proprietary Zyxel / Broadcom Bootloader (`cferam`) & OEM Blobs:
+   This repository intentionally contains ZERO proprietary Zyxel or Broadcom
+   closed-source binaries (`cferam`, OEM `rtecdc.bin`, OEM images, or private
+   calibration/MRD dumps). Users supply their own `cferam` locally from their
+   own router or an official Zyxel OEM firmware download using the included
+   open-source `scripts/vmg8825_factory_builder.py` tool.

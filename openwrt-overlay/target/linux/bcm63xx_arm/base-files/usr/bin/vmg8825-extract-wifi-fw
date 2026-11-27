@@ -1,0 +1,129 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Optional on-router legal helper: extract the user's OWN CLM-enabled March 2020
+# Broadcom Wi-Fi firmware blobs (BCM43664 10.10.122.26 + BCM43602 7.76.6) from
+# the router's untouched Zyxel V5.13 OEM `firmware_backup` NAND partition onto
+# OpenWrt's writable /overlay (/lib/firmware/brcm/).
+#
+# Why optional?
+#   OpenWrt ships with official `linux-firmware` (`brcmfmac-firmware-4366c0-pcie`
+#   and `brcmfmac-firmware-43602a1-pcie`), which work out of the box and are
+#   legally redistributable. Extracting the March 2020 V5.13 blobs from your own
+#   router's backup partition provides stronger 5 GHz TX/RX (+8 dB) and higher
+#   single-stream 5 GHz throughput (~551 Mbps vs ~427 Mbps).
+#
+# Note: Zyxel V5.17+ blobs were compiled with `-noclminc` (no embedded CLM) and
+# will be automatically rejected by this script so Wi-Fi is never broken.
+
+set -eu
+
+FW_DIR="/lib/firmware/brcm"
+MNT="/tmp/vmg8825-oem-ro"
+
+usage() {
+	cat <<'EOF'
+Usage:
+  vmg8825-extract-wifi-fw            Extract CLM-enabled V5.13 Wi-Fi blobs from mtd:firmware_backup
+  vmg8825-extract-wifi-fw --restore  Remove overlay overrides and revert to default linux-firmware
+  vmg8825-extract-wifi-fw --status   Show currently active Wi-Fi firmware files and versions
+EOF
+	exit 1
+}
+
+show_status() {
+	for f in brcmfmac4366c-pcie.bin brcmfmac43602-pcie.bin; do
+		p="$FW_DIR/$f"
+		if [ -f "$p" ]; then
+			sz=$(wc -c < "$p")
+			ver=$(grep -aoE '10\.[0-9]+\.[0-9]+\.[0-9]+|7\.[0-9]+\.[0-9]+' "$p" 2>/dev/null | head -n 1 || true)
+			src="rom (linux-firmware)"
+			[ -f "/overlay/upper$p" ] && src="overlay (local OEM extract)"
+			echo "$f: ${sz} bytes, fw=${ver:-unknown}, source=${src}"
+		else
+			echo "$f: MISSING"
+		fi
+	done
+}
+
+case "${1:-}" in
+--help|-h)
+	usage
+	;;
+--status)
+	show_status
+	exit 0
+	;;
+--restore)
+	echo "Reverting to default linux-firmware blobs..."
+	rm -f "/overlay/upper$FW_DIR/brcmfmac4366c-pcie.bin" "/overlay/upper$FW_DIR/brcmfmac43602-pcie.bin"
+	mount -o remount / 2>/dev/null || true
+	show_status
+	echo "Done! Reboot the router to reload default linux-firmware."
+	exit 0
+	;;
+"")
+	;;
+*)
+	usage
+	;;
+esac
+
+if ! grep -q '"firmware_backup"' /proc/mtd; then
+	echo "ERROR: MTD partition 'firmware_backup' not found." >&2
+	exit 1
+fi
+
+cleanup() {
+	umount "$MNT" 2>/dev/null || true
+	rmdir "$MNT" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+mkdir -p "$MNT"
+echo "[1/3] Mounting mtd:firmware_backup read-only..."
+if ! mount -t jffs2 -o ro "mtd:firmware_backup" "$MNT" 2>/dev/null; then
+	echo "ERROR: Could not mount mtd:firmware_backup as JFFS2." >&2
+	echo "If firmware_backup does not contain stock Zyxel V5.13 OEM firmware, extract" >&2
+	echo "the blobs on your PC using: vmg8825_factory_builder.py --oem V513.bin --extract-wifi-fw ./fw" >&2
+	exit 1
+fi
+
+echo "[2/3] Inspecting OEM Broadcom Wi-Fi firmware blobs..."
+INSTALLED=0
+
+install_blob() {
+	src="$1"
+	dst_name="$2"
+	if [ ! -s "$src" ]; then
+		echo "  [WARN] Not found: $src"
+		return 0
+	fi
+	if grep -aq "noclminc" "$src" 2>/dev/null; then
+		echo "  [SKIP] $dst_name is a Zyxel V5.17+ '-noclminc' blob (incompatible with standalone brcmfmac)."
+		echo "         Keeping default linux-firmware, or extract from an official V5.13 OEM .bin on PC."
+		return 0
+	fi
+	ver=$(grep -aoE '10\.[0-9]+\.[0-9]+\.[0-9]+|7\.[0-9]+\.[0-9]+' "$src" 2>/dev/null | head -n 1 || true)
+	cp "$src" "$FW_DIR/$dst_name.tmp"
+	mv "$FW_DIR/$dst_name.tmp" "$FW_DIR/$dst_name"
+	echo "  [OK]   Installed $FW_DIR/$dst_name ($(wc -c < "$FW_DIR/$dst_name") bytes, fw=${ver:-unknown})"
+	INSTALLED=$((INSTALLED + 1))
+}
+
+install_blob "$MNT/etc/wlan/dhd/4366c0/rtecdc.bin" "brcmfmac4366c-pcie.bin"
+install_blob "$MNT/etc/wlan/dhd/43602a3/rtecdc.bin" "brcmfmac43602-pcie.bin"
+
+echo "[3/3] Syncing..."
+sync
+
+if [ "$INSTALLED" -eq 0 ]; then
+	echo "No CLM-enabled V5.13 blobs were installed. Default linux-firmware remains active."
+	exit 1
+fi
+
+show_status
+echo ""
+echo "Done! Reboot the router to load the extracted Wi-Fi firmware:"
+echo "  reboot"
+echo "(Run 'vmg8825-extract-wifi-fw --restore' anytime to revert to default linux-firmware.)"

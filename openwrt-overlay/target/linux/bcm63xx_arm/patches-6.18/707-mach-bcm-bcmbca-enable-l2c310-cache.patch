@@ -1,0 +1,11 @@
+--- a/arch/arm/mach-bcm/board_bcmbca.c
++++ b/arch/arm/mach-bcm/board_bcmbca.c
+@@ -46,6 +46,8 @@ static const char * const bcmbca_dt_comp
+ };
+ 
+ DT_MACHINE_START(BCMBCA_DT, "BCMBCA Broadband Access Processors")
++	.l2c_aux_val = 0,
++	.l2c_aux_mask = ~0,
+ 	.map_io = bcmbca_map_io,
+ 	.init_early = bcmbca_init_early,
+ 	.dt_compat = bcmbca_dt_compat,

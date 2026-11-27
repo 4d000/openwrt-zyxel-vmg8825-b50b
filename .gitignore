@@ -1,0 +1,18 @@
+# Build & local workspace artifacts
+openwrt-src/
+release-artifacts/
+pages-site/
+*.ras.bin
+*.bin
+*.img
+*.gz
+*.log
+__pycache__/
+*.pyc
+
+# Never commit proprietary firmware blobs or personal router backups
+cferam*
+brcmfmac*.bin
+*backup*/
+*oem*/
+SHA256SUMS

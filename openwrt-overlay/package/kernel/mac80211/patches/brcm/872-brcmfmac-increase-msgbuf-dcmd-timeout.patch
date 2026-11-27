@@ -1,0 +1,22 @@
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -25,7 +25,7 @@
+ 
+ #define MSGBUF_MAX_PKTRELEASE_TIMEOUT		msecs_to_jiffies(100)
+ 
+-#define MSGBUF_IOCTL_RESP_TIMEOUT		msecs_to_jiffies(2000)
++#define MSGBUF_IOCTL_RESP_TIMEOUT		msecs_to_jiffies(10000)
+ 
+ struct msgbuf_common_hdr {
+ 	u8				msgtype;
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -2217,6 +2217,8 @@ static void brcmf_pcie_setup(struct devi
+ 
+ 	init_waitqueue_head(&devinfo->mbdata_resp_wait);
+ 
++	msleep(1000);
++
+ 	ret = brcmf_attach(&devinfo->pdev->dev, true);
+ 	if (ret)
+ 		goto fail;

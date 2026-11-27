@@ -1,0 +1,132 @@
+From: OpenWrt VMG8825-B50B port
+Subject: [PATCH] brcmfmac: pcie: expose BCM43602/BCM43664 wireless LEDs via ChipCommon GPIO
+
+Register Linux led_classdev instances (green:wlan-2g on BCM43602 GPIO 10,
+green:wlan-5g on BCM43664 GPIO 9) driving ChipCommon GPIOOUT/GPIOOUTEN
+directly with MSI IRQ serialization so OpenWrt / LuCI has full dynamic
+control (default-on, timer, heartbeat, netdev, etc.) over both wireless LEDs.
+
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -17,6 +17,7 @@
+ #include <linux/io.h>
+ #include <linux/random.h>
+ #include <linux/unaligned.h>
++#include <linux/leds.h>
+ 
+ #include <soc.h>
+ #include <chipcommon.h>
+@@ -364,6 +365,11 @@
+ 	bool console_active;
+ 	struct timer_list timer;
+ #endif
++#if IS_ENABLED(CONFIG_LEDS_CLASS)
++	struct led_classdev led_cdev;
++	u32 led_mask;
++	bool led_registered;
++#endif
+ };
+ 
+ struct brcmf_pcie_ringbuf {
+@@ -2158,6 +2164,83 @@
+ #define BRCMF_PCIE_FW_CLM	2
+ #define BRCMF_PCIE_FW_TXCAP	3
+ 
++#if IS_ENABLED(CONFIG_LEDS_CLASS)
++static int brcmf_pcie_led_set_blocking(struct led_classdev *cdev,
++				       enum led_brightness value)
++{
++	struct brcmf_pciedev_info *devinfo =
++		container_of(cdev, struct brcmf_pciedev_info, led_cdev);
++	u32 val;
++
++	if (devinfo->state != BRCMFMAC_PCIE_STATE_UP || !devinfo->ci ||
++	    !devinfo->irq_allocated)
++		return 0;
++
++	disable_irq(devinfo->pdev->irq);
++	brcmf_pcie_select_core(devinfo, BCMA_CORE_CHIPCOMMON);
++
++	val = brcmf_pcie_read_reg32(devinfo, BCMA_CC_GPIOCTL);
++	brcmf_pcie_write_reg32(devinfo, BCMA_CC_GPIOCTL,
++			       val & ~devinfo->led_mask);
++
++	val = brcmf_pcie_read_reg32(devinfo, BCMA_CC_GPIOTOUTM);
++	brcmf_pcie_write_reg32(devinfo, BCMA_CC_GPIOTOUTM,
++			       val & ~devinfo->led_mask);
++
++	val = brcmf_pcie_read_reg32(devinfo, BCMA_CC_GPIOOUTEN);
++	brcmf_pcie_write_reg32(devinfo, BCMA_CC_GPIOOUTEN,
++			       val | devinfo->led_mask);
++
++	val = brcmf_pcie_read_reg32(devinfo, BCMA_CC_GPIOOUT);
++	if (value)
++		val &= ~devinfo->led_mask;
++	else
++		val |= devinfo->led_mask;
++	brcmf_pcie_write_reg32(devinfo, BCMA_CC_GPIOOUT, val);
++
++	brcmf_pcie_select_core(devinfo, BCMA_CORE_PCIE2);
++	enable_irq(devinfo->pdev->irq);
++
++	return 0;
++}
++
++static void brcmf_pcie_led_register(struct brcmf_pciedev_info *devinfo)
++{
++	const char *name = NULL;
++
++	if (devinfo->ci->chip == BRCM_CC_43602_CHIP_ID) {
++		name = "green:wlan-2g";
++		devinfo->led_mask = BIT(10);
++	} else if (devinfo->ci->chip == BRCM_CC_43664_CHIP_ID) {
++		name = "green:wlan-5g";
++		devinfo->led_mask = BIT(9);
++	} else {
++		return;
++	}
++
++	devinfo->led_cdev.name = name;
++	devinfo->led_cdev.max_brightness = 1;
++	devinfo->led_cdev.brightness_set_blocking = brcmf_pcie_led_set_blocking;
++	if (!led_classdev_register(&devinfo->pdev->dev, &devinfo->led_cdev))
++		devinfo->led_registered = true;
++}
++
++static void brcmf_pcie_led_unregister(struct brcmf_pciedev_info *devinfo)
++{
++	if (devinfo->led_registered) {
++		led_classdev_unregister(&devinfo->led_cdev);
++		devinfo->led_registered = false;
++	}
++}
++#else
++static inline void brcmf_pcie_led_register(struct brcmf_pciedev_info *devinfo)
++{
++}
++static inline void brcmf_pcie_led_unregister(struct brcmf_pciedev_info *devinfo)
++{
++}
++#endif
++
+ static void brcmf_pcie_setup(struct device *dev, int ret,
+ 			     struct brcmf_fw_request *fwreq)
+ {
+@@ -2254,6 +2337,8 @@
+ 
+ 	brcmf_pcie_fwcon_timer(devinfo, true);
+ 
++	brcmf_pcie_led_register(devinfo);
++
+ 	return;
+ 
+ fail:
+@@ -2624,6 +2709,8 @@
+ 	brcmf_pcie_bus_console_read(devinfo, false);
+ 	brcmf_pcie_fwcon_timer(devinfo, false);
+ 
++	brcmf_pcie_led_unregister(devinfo);
++
+ 	devinfo->state = BRCMFMAC_PCIE_STATE_DOWN;
+ 	if (devinfo->ci)
+ 		brcmf_pcie_intr_disable(devinfo);

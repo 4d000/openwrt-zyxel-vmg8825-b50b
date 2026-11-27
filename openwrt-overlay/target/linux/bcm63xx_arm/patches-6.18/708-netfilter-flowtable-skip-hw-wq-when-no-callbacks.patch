@@ -1,0 +1,22 @@
+--- a/net/netfilter/nf_flow_table_core.c
++++ b/net/netfilter/nf_flow_table_core.c
+@@ -361,7 +361,8 @@ int flow_offload_add(struct nf_flowtable
+ 
+ 	nf_ct_refresh(flow->ct, NF_CT_DAY);
+ 
+-	if (nf_flowtable_hw_offload(flow_table)) {
++	if (nf_flowtable_hw_offload(flow_table) &&
++	    !list_empty(&flow_table->flow_block.cb_list)) {
+ 		__set_bit(NF_FLOW_HW, &flow->flags);
+ 		nf_flow_offload_add(flow_table, flow);
+ 	}
+@@ -380,7 +381,8 @@ void flow_offload_refresh(struct nf_flow
+ 	else
+ 		return;
+ 
+-	if (likely(!nf_flowtable_hw_offload(flow_table)) ||
++	if (likely(!nf_flowtable_hw_offload(flow_table) ||
++		   list_empty(&flow_table->flow_block.cb_list)) ||
+ 	    test_bit(NF_FLOW_CLOSING, &flow->flags))
+ 		return;
+ 

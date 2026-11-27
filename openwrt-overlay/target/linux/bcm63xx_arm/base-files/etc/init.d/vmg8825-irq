@@ -1,0 +1,23 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+start() {
+	ETH_IRQ=$(awk -F: '/eth0/{gsub(/ /,"",$1); print $1; exit}' /proc/interrupts)
+	[ -n "$ETH_IRQ" ] && [ -w "/proc/irq/$ETH_IRQ/smp_affinity" ] && echo 2 > "/proc/irq/$ETH_IRQ/smp_affinity"
+	for WIRQ in $(awk -F: '/brcmf_pcie/{gsub(/ /,"",$1); print $1}' /proc/interrupts); do
+		[ -w "/proc/irq/$WIRQ/smp_affinity" ] && echo 1 > "/proc/irq/$WIRQ/smp_affinity"
+	done
+	# Mux GPIO 117 (I2C_SDA) & GPIO 119 (I2C_SCL) to PINMUX_GPIO (5) for SFP EEPROM/DDM
+	if [ -w /sys/bus/platform/drivers/sfp/unbind ]; then
+		devmem 0xfffe813c 32 0 >/dev/null 2>&1
+		devmem 0xfffe8140 32 0x5075 >/dev/null 2>&1
+		devmem 0xfffe8144 32 0x21 >/dev/null 2>&1
+		devmem 0xfffe813c 32 0 >/dev/null 2>&1
+		devmem 0xfffe8140 32 0x5077 >/dev/null 2>&1
+		devmem 0xfffe8144 32 0x21 >/dev/null 2>&1
+		echo sfp > /sys/bus/platform/drivers/sfp/unbind 2>/dev/null
+		echo sfp > /sys/bus/platform/drivers/sfp/bind 2>/dev/null
+	fi
+	(sleep 5; [ -w /sys/class/net/eth0/queues/rx-0/rps_cpus ] && echo 1 > /sys/class/net/eth0/queues/rx-0/rps_cpus) &
+}

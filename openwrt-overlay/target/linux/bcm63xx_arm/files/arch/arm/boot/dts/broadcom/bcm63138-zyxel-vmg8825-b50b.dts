@@ -1,0 +1,424 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+
+#include "bcm63138.dtsi"
+
+/ {
+	compatible = "zyxel,vmg8825-b50b", "brcm,bcm63138", "brcm,bcmbca";
+	model = "Zyxel VMG8825-B50B";
+
+	aliases {
+		led-boot = &led_power_green;
+		led-failsafe = &led_power_red;
+		led-running = &led_power_green;
+		led-upgrade = &led_power_red;
+	};
+
+	chosen {
+		bootargs = "earlycon console=ttyS0,115200n8 earlyprintk clk_ignore_unused";
+		stdout-path = "serial0:115200n8";
+	};
+
+	i2c_sfp: i2c-sfp {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpio3 21 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpio3 23 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	sfp: sfp {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c_sfp>;
+		mod-def0-gpios = <&gpio2 14 GPIO_ACTIVE_LOW>;
+		los-gpios = <&gpio0 28 GPIO_ACTIVE_HIGH>;
+		tx-fault-gpios = <&gpio2 12 GPIO_ACTIVE_HIGH>;
+		tx-disable-gpios = <&gpio2 13 GPIO_ACTIVE_HIGH>;
+		maximum-power-milliwatt = <2000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		runner_reserved: runner-reserved@e000000 {
+			reg = <0x0e000000 0x01c00000>;
+			no-map;
+		};
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x20000000>;
+	};
+
+
+
+	gpio-keys-polled {
+		compatible = "gpio-keys-polled";
+		poll-interval = <20>;
+
+		key-reset {
+			label = "Reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&gpio1 0 GPIO_ACTIVE_LOW>;
+		};
+
+		key-wps {
+			label = "WPS";
+			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&gpio1 1 GPIO_ACTIVE_LOW>;
+		};
+
+		key-wifi {
+			label = "WiFi";
+			linux,code = <KEY_RFKILL>;
+			gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+
+		led-lan-aggregate-link {
+			label = "green:lan-aggregate-link";
+			gpios = <&gpio0 23 GPIO_ACTIVE_HIGH>;
+		};
+
+		led-lan-aggregate-act {
+			label = "green:lan-aggregate-act";
+			gpios = <&gpio0 24 GPIO_ACTIVE_LOW>;
+		};
+
+		led-wps-2g {
+			label = "red:wps-2g";
+			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led-wps-5g {
+			label = "red:wps-5g";
+			gpios = <&gpio1 4 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led-sfp {
+			label = "green:sfp";
+			gpios = <&gpio0 20 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+	};
+};
+
+&leds {
+	status = "okay";
+
+	led_power_green: led@26 {
+		reg = <26>;
+		active-low;
+		function = LED_FUNCTION_POWER;
+		color = <LED_COLOR_ID_GREEN>;
+		default-state = "on";
+	};
+
+	led_power_red: led@25 {
+		reg = <25>;
+		active-low;
+		function = LED_FUNCTION_FAULT;
+		color = <LED_COLOR_ID_RED>;
+		default-state = "off";
+	};
+
+	led@15 {
+		reg = <15>;
+		active-low;
+		function = LED_FUNCTION_WAN_ONLINE;
+		color = <LED_COLOR_ID_GREEN>;
+		default-state = "off";
+	};
+
+	led@16 {
+		reg = <16>;
+		active-low;
+		function = LED_FUNCTION_WAN_ONLINE;
+		color = <LED_COLOR_ID_RED>;
+		default-state = "off";
+	};
+
+	led@17 {
+		reg = <17>;
+		active-low;
+		function = "dsl";
+		color = <LED_COLOR_ID_GREEN>;
+		default-state = "off";
+	};
+
+	led@21 {
+		reg = <21>;
+		active-low;
+		function = "dsl";
+		color = <LED_COLOR_ID_AMBER>;
+		default-state = "off";
+	};
+
+	led@22 {
+		reg = <22>;
+		active-low;
+		function = LED_FUNCTION_WAN;
+		color = <LED_COLOR_ID_GREEN>;
+	};
+
+	led@10 {
+		reg = <10>;
+		active-low;
+		label = "green:lan1";
+	};
+
+	led@11 {
+		reg = <11>;
+		active-low;
+		label = "green:lan2";
+	};
+
+	led@12 {
+		reg = <12>;
+		active-low;
+		label = "green:lan3";
+	};
+
+	led@13 {
+		reg = <13>;
+		active-low;
+		label = "green:lan4";
+	};
+
+	led@27 {
+		reg = <27>;
+		active-low;
+		label = "green:phone";
+		default-state = "off";
+	};
+
+	led@29 {
+		reg = <29>;
+		active-low;
+		label = "amber:phone";
+		default-state = "off";
+	};
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&gpio2 {
+	status = "okay";
+
+	wifi-5g-reset-hog {
+		gpio-hog;
+		gpios = <27 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-5g-reset";
+	};
+
+	wifi-24g-reset-hog {
+		gpio-hog;
+		gpios = <28 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-24g-reset";
+	};
+};
+
+&gpio3 {
+	status = "okay";
+
+	wifi-5g-disable-hog {
+		gpio-hog;
+		gpios = <19 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-5g-disable";
+	};
+
+	wifi-24g-disable-hog {
+		gpio-hog;
+		gpios = <24 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "wifi-24g-disable";
+	};
+};
+
+&gpio4 {
+	status = "okay";
+};
+
+&pcie0 {
+	status = "okay";
+};
+
+&pcie1 {
+	status = "okay";
+};
+
+&serial0 {
+	status = "okay";
+};
+
+&conduit {
+	status = "okay";
+};
+
+&usb_phy {
+	brcm,ioc = <1>;
+	brcm,ipp = <1>;
+	status = "okay";
+};
+
+&ehci {
+	status = "okay";
+};
+
+&ohci {
+	status = "okay";
+};
+
+&xhci {
+	status = "okay";
+};
+
+&nand_controller {
+	status = "okay";
+	brcm,wp-not-connected;
+};
+
+&nandcs {
+	nand-ecc-strength = <4>;
+	nand-ecc-step-size = <512>;
+	brcm,nand-oob-sector-size = <16>;
+	nand-on-flash-bbt;
+
+	partitions {
+		compatible = "brcm,bcm4908-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "cferom";
+			reg = <0x00000000 0x00020000>;
+			read-only;
+		};
+
+		partition@20000 {
+			compatible = "brcm,bcm4908-firmware";
+			label = "firmware";
+			reg = <0x00020000 0x0bbe0000>;
+		};
+
+		partition@bc00000 {
+			compatible = "brcm,bcm4908-firmware";
+			label = "firmware_backup";
+			reg = <0x0bc00000 0x0bbe0000>;
+		};
+
+		partition@177e0000 {
+			label = "misc1";
+			reg = <0x177e0000 0x08020000>;
+		};
+
+		partition@1f800000 {
+			label = "romfile";
+			reg = <0x1f800000 0x00100000>;
+		};
+
+		partition@1f900000 {
+			label = "data";
+			reg = <0x1f900000 0x00400000>;
+		};
+
+		partition@1fd00000 {
+			label = "rom-d";
+			reg = <0x1fd00000 0x00100000>;
+		};
+
+		partition@1fe00000 {
+			label = "wwan";
+			reg = <0x1fe00000 0x00100000>;
+		};
+	};
+};
+
+&mdio {
+	status = "okay";
+};
+
+&switch {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			label = "lan1";
+			phy-mode = "internal";
+			phy-handle = <&phy8>;
+		};
+
+		port@1 {
+			reg = <1>;
+			label = "lan2";
+			phy-mode = "internal";
+			phy-handle = <&phy9>;
+		};
+
+		port@2 {
+			reg = <2>;
+			label = "lan3";
+			phy-mode = "internal";
+			phy-handle = <&phy10>;
+		};
+
+		port@3 {
+			reg = <3>;
+			label = "lan4";
+			phy-mode = "internal";
+			phy-handle = <&phy11>;
+		};
+
+		port@4 {
+			reg = <4>;
+			label = "wan";
+			phy-mode = "internal";
+			phy-handle = <&phy12>;
+		};
+
+		port@7 {
+			reg = <7>;
+			label = "sfp";
+			status = "disabled";
+		};
+
+		port@8 {
+			reg = <8>;
+			label = "cpu";
+			ethernet = <&conduit>;
+			phy-mode = "internal";
+
+			fixed-link {
+				speed = <1000>;
+				full-duplex;
+			};
+		};
+	};
+};

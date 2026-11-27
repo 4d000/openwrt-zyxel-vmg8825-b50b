@@ -1,0 +1,90 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Zyxel VMG8825-B50B OpenWrt Updater
+# Checks the latest GitHub Release for openwrt-zyxel-vmg8825-b50b, downloads
+# the public GPLv2 squashfs.bin + sha256sums, verifies the SHA-256 checksum,
+# and invokes OpenWrt sysupgrade (preserving /etc/config and the router's own
+# cferam.XXX automatically).
+
+set -eu
+
+REPO="${VMG8825_REPO:-4d000/openwrt-zyxel-vmg8825-b50b}"
+API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+IMG_NAME="openwrt-bcm63xx_arm-generic-zyxel_vmg8825-b50b-squashfs.bin"
+TMP_DIR="/tmp/vmg8825-upgrade"
+CHECK_ONLY=0
+NO_SAVE=0
+
+for arg in "$@"; do
+	case "$arg" in
+		--check) CHECK_ONLY=1 ;;
+		-n|--no-save) NO_SAVE=1 ;;
+		-h|--help)
+			cat <<'EOF'
+Usage:
+  vmg8825-upgrade            Download, verify SHA-256, and flash latest release (keeps config)
+  vmg8825-upgrade --check    Check latest available GitHub Release without downloading
+  vmg8825-upgrade --no-save  Upgrade without preserving /etc/config (clean reset)
+
+Environment overrides:
+  VMG8825_REPO=owner/repo    Override GitHub repository (default: 4d000/openwrt-zyxel-vmg8825-b50b)
+EOF
+			exit 0
+			;;
+		*)
+			echo "Unknown option: $arg" >&2
+			exit 1
+			;;
+	esac
+done
+
+rm -rf "$TMP_DIR"
+mkdir -p "$TMP_DIR"
+
+echo "[1/4] Querying latest release from https://github.com/${REPO}/releases ..."
+if ! uclient-fetch -q -O "$TMP_DIR/release.json" "$API_URL"; then
+	echo "ERROR: Failed to fetch release metadata from $API_URL" >&2
+	exit 1
+fi
+
+TAG=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$TMP_DIR/release.json" | head -n 1)
+if [ -z "$TAG" ]; then
+	echo "ERROR: Could not parse release tag from GitHub API response." >&2
+	exit 1
+fi
+
+echo "  Latest release tag : $TAG"
+if [ -f /etc/openwrt_release ]; then
+	. /etc/openwrt_release
+	echo "  Installed release  : ${DISTRIB_DESCRIPTION:-unknown} (${DISTRIB_REVISION:-unknown})"
+fi
+
+if [ "$CHECK_ONLY" = "1" ]; then
+	rm -rf "$TMP_DIR"
+	exit 0
+fi
+
+BASE_DL="https://github.com/${REPO}/releases/download/${TAG}"
+echo "[2/4] Downloading sha256sums and ${IMG_NAME} ..."
+uclient-fetch -O "$TMP_DIR/sha256sums" "${BASE_DL}/sha256sums"
+uclient-fetch -O "$TMP_DIR/${IMG_NAME}" "${BASE_DL}/${IMG_NAME}"
+
+echo "[3/4] Verifying SHA-256 checksum ..."
+EXPECTED=$(grep "${IMG_NAME}" "$TMP_DIR/sha256sums" | awk '{print $1}' | head -n 1)
+ACTUAL=$(sha256sum "$TMP_DIR/${IMG_NAME}" | awk '{print $1}')
+if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
+	echo "ERROR: SHA-256 mismatch!" >&2
+	echo "  Expected: ${EXPECTED:-<missing>}" >&2
+	echo "  Actual  : ${ACTUAL}" >&2
+	rm -rf "$TMP_DIR"
+	exit 1
+fi
+echo "  SHA-256 OK: $ACTUAL"
+
+echo "[4/4] Starting sysupgrade (router will reboot automatically)..."
+if [ "$NO_SAVE" = "1" ]; then
+	exec sysupgrade -n "$TMP_DIR/${IMG_NAME}"
+else
+	exec sysupgrade "$TMP_DIR/${IMG_NAME}"
+fi

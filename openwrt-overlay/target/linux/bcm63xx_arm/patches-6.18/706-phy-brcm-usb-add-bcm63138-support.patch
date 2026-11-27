@@ -1,0 +1,98 @@
+--- a/drivers/phy/broadcom/phy-brcm-usb.c
++++ b/drivers/phy/broadcom/phy-brcm-usb.c
+@@ -293,6 +293,15 @@
+ 	},
+ };
+ 
++static const struct match_chip_info chip_info_63138 = {
++	.init_func = &brcm_usb_dvr_init_63138,
++	.required_regs = {
++		BRCM_REGS_CTRL,
++		BRCM_REGS_XHCI_EC,
++		-1,
++	},
++};
++
+ static const struct match_chip_info chip_info_4908 = {
+ 	.init_func = &brcm_usb_dvr_init_4908,
+ 	.required_regs = {
+@@ -340,6 +349,10 @@
+ 		.data = &chip_info_74110,
+ 	},
+ 	{
++		.compatible = "brcm,bcm63138-usb-phy",
++		.data = &chip_info_63138,
++	},
++	{
+ 		.compatible = "brcm,bcm4908-usb-phy",
+ 		.data = &chip_info_4908,
+ 	},
+--- a/drivers/phy/broadcom/phy-brcm-usb-init.c
++++ b/drivers/phy/broadcom/phy-brcm-usb-init.c
+@@ -85,6 +85,7 @@
+ enum brcm_family_type {
+ 	BRCM_FAMILY_3390A0,
+ 	BRCM_FAMILY_4908,
++	BRCM_FAMILY_63138,
+ 	BRCM_FAMILY_7250B0,
+ 	BRCM_FAMILY_7271A0,
+ 	BRCM_FAMILY_7364A0,
+@@ -103,6 +104,7 @@
+ static const char *family_names[BRCM_FAMILY_COUNT] = {
+ 	USB_BRCM_FAMILY(3390A0),
+ 	USB_BRCM_FAMILY(4908),
++	USB_BRCM_FAMILY(63138),
+ 	USB_BRCM_FAMILY(7250B0),
+ 	USB_BRCM_FAMILY(7271A0),
+ 	USB_BRCM_FAMILY(7364A0),
+@@ -224,6 +226,13 @@
+ 		[USB_CTRL_USB_PM_USB_PWRDN_SELECTOR] =
+ 			USB_CTRL_USB_PM_USB_PWRDN_MASK,
+ 	},
++	/* 63138 */
++	[BRCM_FAMILY_63138] = {
++		[USB_CTRL_USB_PM_XHC_SOFT_RESETB_SELECTOR] =
++			USB_CTRL_USB_PM_XHC_SOFT_RESETB_VAR_MASK,
++		[USB_CTRL_USB_PM_USB_PWRDN_SELECTOR] =
++			USB_CTRL_USB_PM_USB_PWRDN_MASK,
++	},
+ 	/* 7250b0 */
+ 	[BRCM_FAMILY_7250B0] = {
+ 		[USB_CTRL_SETUP_SCB1_EN_SELECTOR] =
+@@ -607,6 +616,7 @@
+ 	switch (params->selected_family) {
+ 	case BRCM_FAMILY_3390A0:
+ 	case BRCM_FAMILY_4908:
++	case BRCM_FAMILY_63138:
+ 	case BRCM_FAMILY_7250B0:
+ 	case BRCM_FAMILY_7366C0:
+ 	case BRCM_FAMILY_74371A0:
+@@ -1059,6 +1069,18 @@
+ 	.set_dual_select = usb_set_dual_select,
+ };
+ 
++void brcm_usb_dvr_init_63138(struct brcm_usb_init_params *params)
++{
++	int fam;
++
++	fam = BRCM_FAMILY_63138;
++	params->selected_family = fam;
++	params->usb_reg_bits_map =
++		&usb_reg_bits_map_table[fam][0];
++	params->family_name = family_names[fam];
++	params->ops = &bcm7445_ops;
++}
++
+ void brcm_usb_dvr_init_4908(struct brcm_usb_init_params *params)
+ {
+ 	int fam;
+--- a/drivers/phy/broadcom/phy-brcm-usb-init.h
++++ b/drivers/phy/broadcom/phy-brcm-usb-init.h
+@@ -73,6 +73,7 @@
+ };
+ 
+ void brcm_usb_dvr_init_74110(struct brcm_usb_init_params *params);
++void brcm_usb_dvr_init_63138(struct brcm_usb_init_params *params);
+ void brcm_usb_dvr_init_4908(struct brcm_usb_init_params *params);
+ void brcm_usb_dvr_init_7445(struct brcm_usb_init_params *params);
+ void brcm_usb_dvr_init_7216(struct brcm_usb_init_params *params);

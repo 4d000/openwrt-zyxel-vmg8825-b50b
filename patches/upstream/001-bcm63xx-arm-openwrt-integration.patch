@@ -1,0 +1,42 @@
+diff --git a/package/network/config/wifi-scripts/files-ucode/usr/share/wifi_devices.json b/package/network/config/wifi-scripts/files-ucode/usr/share/wifi_devices.json
+index 7c46dfc..01b6bfc 100644
+--- a/package/network/config/wifi-scripts/files-ucode/usr/share/wifi_devices.json
++++ b/package/network/config/wifi-scripts/files-ucode/usr/share/wifi_devices.json
+@@ -192,6 +192,7 @@
+ 		[ "0x14c3", "0x7906", "0x14c3", "0x7906", 0, 0, "MediaTek", "MT7916AN" ],
+ 		[ "0x14c3", "0x7990", "0x14C3", "0x6639", 0, 0, "MediaTek", "MT7996E" ],
+ 		[ "0x14c3", "0x7992", "0x14C3", "0x7992", 0, 0, "MediaTek", "MT7992E" ],
++		[ "0x14e4", "0x4365", "0x14e4", "0x4365", 0, 0, "Broadcom", "BCM43664" ],
+ 		[ "0x14e4", "0xaa52", "0x14e4", "0xaa52", 0, 0, "Broadcom", "BCM43602" ],
+ 		[ "0x02d0", "0xa9a6", "0x0000", "0x0000", 0, 0, "Cypress", "CYW43455" ],
+ 		[ "0x02d0", "0x4345", "0x0000", "0x0000", 0, 0, "Cypress", "CYW43455" ],
+diff --git a/package/utils/bcm4908img/Makefile b/package/utils/bcm4908img/Makefile
+index fbb91fb..50686a1 100644
+--- a/package/utils/bcm4908img/Makefile
++++ b/package/utils/bcm4908img/Makefile
+@@ -17,7 +17,7 @@ define Package/bcm4908img
+   CATEGORY:=Base system
+   TITLE:=Utility handling BCM4908 images
+   MAINTAINER:=Rafał Miłecki <rafal@milecki.pl>
+-  DEPENDS:=@TARGET_bcm4908
++  DEPENDS:=@(TARGET_bcm4908||TARGET_bcm63xx_arm)
+ endef
+ 
+ define Package/bcm4908img/description
+diff --git a/package/utils/bcm4908img/src/bcm4908img.c b/package/utils/bcm4908img/src/bcm4908img.c
+index 240fe89..8808bae 100644
+--- a/package/utils/bcm4908img/src/bcm4908img.c
++++ b/package/utils/bcm4908img/src/bcm4908img.c
+@@ -537,8 +537,11 @@ static int bcm4908img_create(int argc, char **argv) {
+ 	}
+ 
+ 	optind = 3;
+-	while ((c = getopt(argc, argv, "f:a:A:")) != -1) {
++	while ((c = getopt(argc, argv, "f:a:A:c:")) != -1) {
+ 		switch (c) {
++		case 'c':
++			tail.chip_id = cpu_to_le32(strtoul(optarg, NULL, 0));
++			break;
+ 		case 'f':
+ 			bytes = bcm4908img_create_append_file(fp, optarg, &crc32);
+ 			if (bytes < 0) {

@@ -1,0 +1,41 @@
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+@@ -7300,8 +7300,12 @@ static void brcmf_update_ht_cap(struct i
+ 	}
+ 	band->ht_cap.cap |= IEEE80211_HT_CAP_SGI_20;
+ 	band->ht_cap.cap |= IEEE80211_HT_CAP_DSSSCCK40;
++	band->ht_cap.cap |= IEEE80211_HT_CAP_LDPC_CODING |
++			    IEEE80211_HT_CAP_TX_STBC |
++			    (1 << IEEE80211_HT_CAP_RX_STBC_SHIFT) |
++			    IEEE80211_HT_CAP_MAX_AMSDU;
+ 	band->ht_cap.ampdu_factor = IEEE80211_HT_MAX_AMPDU_64K;
+-	band->ht_cap.ampdu_density = IEEE80211_HT_MPDU_DENSITY_16;
++	band->ht_cap.ampdu_density = IEEE80211_HT_MPDU_DENSITY_4;
+ 	memset(band->ht_cap.mcs.rx_mask, 0xff, nchain);
+ 	band->ht_cap.mcs.tx_params = IEEE80211_HT_MCS_TX_DEFINED;
+ }
+@@ -7330,7 +7334,12 @@ static void brcmf_update_vht_cap(struct
+ 	band->vht_cap.vht_supported = true;
+ 	/* 80MHz is mandatory */
+-	band->vht_cap.cap |= IEEE80211_VHT_CAP_SHORT_GI_80;
++	band->vht_cap.cap |= IEEE80211_VHT_CAP_SHORT_GI_80 |
++			     IEEE80211_VHT_CAP_RXLDPC |
++			     IEEE80211_VHT_CAP_TXSTBC |
++			     IEEE80211_VHT_CAP_RXSTBC_1 |
++			     IEEE80211_VHT_CAP_MAX_MPDU_LENGTH_11454 |
++			     (7 << IEEE80211_VHT_CAP_MAX_A_MPDU_LENGTH_EXPONENT_SHIFT);
+ 	if (bw_cap[band->band] & WLC_BW_160MHZ_BIT) {
+ 		band->vht_cap.cap |= IEEE80211_VHT_CAP_SUPP_CHAN_WIDTH_160MHZ;
+ 		band->vht_cap.cap |= IEEE80211_VHT_CAP_SHORT_GI_160;
+ 	}
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c
+@@ -491,6 +491,8 @@
+ 
+ 	/* Enable tx beamforming, errors can be ignored (not supported) */
+ 	(void)brcmf_fil_iovar_int_set(ifp, "txbf", 1);
++	(void)brcmf_fil_iovar_int_set(ifp, "ampdu_rx_density", 5);
++	(void)brcmf_fil_iovar_int_set(ifp, "ampdu_mpdu", 64);
+ done:
+ 	return err;
+ }

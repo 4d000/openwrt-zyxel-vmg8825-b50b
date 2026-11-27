@@ -1,0 +1,42 @@
+--- a/arch/arm/mach-bcm/Makefile
++++ b/arch/arm/mach-bcm/Makefile
+@@ -59,3 +59,3 @@ endif
+ ifeq ($(CONFIG_ARCH_BCMBCA),y)
+-obj-$(CONFIG_DEBUG_BCMBCA)	+= board_bcmbca.o
++obj-y				+= board_bcmbca.o
+ obj-$(CONFIG_SMP)		+= bcm63xx_smp.o bcm63xx_pmb.o
+--- a/arch/arm/mach-bcm/board_bcmbca.c
++++ b/arch/arm/mach-bcm/board_bcmbca.c
+@@ -4,6 +4,20 @@
+ #include <asm/mach/arch.h>
+ #include <asm/mach/map.h>
++#include <asm/siginfo.h>
++#include <asm/signal.h>
++
++static int bcmbca_abort_handler(unsigned long addr, unsigned int fsr,
++				struct pt_regs *regs)
++{
++	/* Ignore all imprecise external aborts on BCM63138 */
++	return 0;
++}
++
++static void __init bcmbca_init_early(void)
++{
++	hook_fault_code(16 + 6, bcmbca_abort_handler, SIGBUS, BUS_OBJERR,
++			"imprecise external abort");
++}
+ 
+ /* This is needed for LL-debug/earlyprintk/debug-macro.S */
+ static struct map_desc bcmbca_io_desc[] __initdata = {
+@@ -23,9 +37,11 @@ static void __init bcmbca_map_io(void)
+ static const char * const bcmbca_dt_compat[] = {
+ 	/* TODO: Add other BCMBCA SoCs here to get debug UART support */
++	"brcm,bcm63138",
+ 	"brcm,bcm6846",
+ 	NULL,
+ };
+ 
+ DT_MACHINE_START(BCMBCA_DT, "BCMBCA Broadband Access Processors")
+ 	.map_io = bcmbca_map_io,
++	.init_early = bcmbca_init_early,
+ 	.dt_compat = bcmbca_dt_compat,

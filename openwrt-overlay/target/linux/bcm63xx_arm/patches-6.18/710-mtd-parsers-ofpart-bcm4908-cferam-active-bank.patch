@@ -1,0 +1,138 @@
+--- a/drivers/mtd/parsers/ofpart_bcm4908.c
++++ b/drivers/mtd/parsers/ofpart_bcm4908.c
+@@ -5,6 +5,7 @@
+ 
+ #include <linux/module.h>
+ #include <linux/init.h>
++#include <linux/jffs2.h>
+ #include <linux/of.h>
+ #include <linux/mtd/mtd.h>
+ #include <linux/slab.h>
+@@ -13,6 +14,7 @@
+ #include "ofpart_bcm4908.h"
+ 
+ #define BLPARAMS_FW_OFFSET		"NAND_RFS_OFS"
++#define CFE_BOOTFS_SCAN_LIMIT		0x00800000
+ 
+ static long long bcm4908_partitions_fw_offset(void)
+ {
+@@ -47,19 +49,106 @@
+ 	return -ENOENT;
+ }
+ 
++static int bcm4908_cferam_newer(int a, int b)
++{
++	if (b < 0)
++		return 1;
++	if (a < 0)
++		return 0;
++	return ((a - b + 1000) % 1000) < 500 && a != b;
++}
++
++static int bcm4908_scan_cferam_seq(struct mtd_info *mtd, u64 part_off, u64 part_size)
++{
++	u64 scan_end = part_off + min_t(u64, part_size, CFE_BOOTFS_SCAN_LIMIT);
++	u64 eb_off, off;
++	u32 esize = mtd->erasesize ?: 0x20000;
++	int best = -1;
++	u8 buf[sizeof(struct jffs2_raw_dirent) + 12];
++
++	for (eb_off = part_off; eb_off < scan_end; eb_off += esize) {
++		if (mtd_block_isbad(mtd, eb_off) > 0)
++			continue;
++
++		off = eb_off;
++		while (off + sizeof(struct jffs2_raw_dirent) <= eb_off + esize) {
++			struct jffs2_raw_dirent *d = (struct jffs2_raw_dirent *)buf;
++			size_t retlen;
++			u16 magic, nodetype;
++			u32 totlen;
++
++			if (mtd_read(mtd, off, sizeof(buf), &retlen, buf) ||
++			    retlen < sizeof(struct jffs2_raw_dirent))
++				break;
++
++			magic = le16_to_cpu(d->magic.v16);
++			if (magic != JFFS2_MAGIC_BITMASK)
++				break;
++
++			totlen = le32_to_cpu(d->totlen.v32);
++			if (totlen < sizeof(struct jffs2_unknown_node) ||
++			    off + totlen > eb_off + esize)
++				break;
++
++			nodetype = le16_to_cpu(d->nodetype.v16);
++			if (nodetype == JFFS2_NODETYPE_DIRENT &&
++			    d->nsize == 10 &&
++			    retlen >= sizeof(struct jffs2_raw_dirent) + 10 &&
++			    !memcmp(d->name, "cferam.", 7) &&
++			    d->name[7] >= '0' && d->name[7] <= '9' &&
++			    d->name[8] >= '0' && d->name[8] <= '9' &&
++			    d->name[9] >= '0' && d->name[9] <= '9') {
++				int seq = (d->name[7] - '0') * 100 +
++					  (d->name[8] - '0') * 10 +
++					  (d->name[9] - '0');
++				if (bcm4908_cferam_newer(seq, best))
++					best = seq;
++			}
++
++			off += ALIGN(totlen, 4);
++		}
++	}
++
++	return best;
++}
++
+ int bcm4908_partitions_post_parse(struct mtd_info *mtd, struct mtd_partition *parts, int nr_parts)
+ {
+ 	long long fw_offset;
++	int active_idx = -1;
++	int best_seq = -1;
++	int first_fw = -1;
+ 	int i;
+ 
+ 	fw_offset = bcm4908_partitions_fw_offset();
+ 
++	if (fw_offset < 0) {
++		for (i = 0; i < nr_parts; i++) {
++			int seq;
++
++			if (!of_device_is_compatible(parts[i].of_node, "brcm,bcm4908-firmware"))
++				continue;
++			if (first_fw < 0)
++				first_fw = i;
++			seq = bcm4908_scan_cferam_seq(mtd, parts[i].offset, parts[i].size);
++			pr_info("ofpart_bcm4908: bank %d @0x%llx cferam=%03d\n",
++				i, (unsigned long long)parts[i].offset, seq);
++			if (seq >= 0 && bcm4908_cferam_newer(seq, best_seq)) {
++				best_seq = seq;
++				active_idx = i;
++			}
++		}
++		if (active_idx < 0)
++			active_idx = first_fw;
++	}
++
+ 	for (i = 0; i < nr_parts; i++) {
+ 		if (of_device_is_compatible(parts[i].of_node, "brcm,bcm4908-firmware")) {
+-			if (fw_offset < 0 || parts[i].offset == fw_offset)
++			if ((fw_offset >= 0 && parts[i].offset == fw_offset) ||
++			    (fw_offset < 0 && i == active_idx))
+ 				parts[i].name = "firmware";
+ 			else
+-				parts[i].name = "backup";
++				parts[i].name = "firmware_backup";
+ 		}
+ 	}
+ 
+--- a/drivers/mtd/mtdsplit/mtdsplit_cfe_bootfs.c
++++ b/drivers/mtd/mtdsplit/mtdsplit_cfe_bootfs.c
+@@ -33,7 +33,7 @@
+ 
+ 	/* Don't parse backup partitions */
+ 	if (strcmp(mtd->name, "firmware"))
+-		return -EINVAL;
++		return 0;
+ 
+ 	/* Find the end of JFFS2 bootfs partition */
+ 	offset = 0;

@@ -1,0 +1,216 @@
+From: OpenWrt VMG8825-B50B port
+Subject: [PATCH] brcmfmac: msgbuf: support PCIe DHDHDR TX header conversion
+
+Broadcom PCIe FullMAC firmwares built with -dhdhdr (e.g. BCM43602/3 7.76.6
+on ZyXEL VMG8825-B50B) set bit 21 (0x200000) in shared->flags. When enabled,
+firmware still expects the 14-byte Ethernet II header in tx_msghdr->txhdr
+and data_buf_addr pointing to payload (orig + ETH_HLEN), but reads a
+22-byte IEEE 802.3 + LLC/SNAP header directly from DMA memory at
+data_buf_addr - 22.
+
+Expose shared->flags bit 21 as bus->msgbuf->dhdhdr, reserve 8 bytes of extra
+headroom via brcmf_bus_add_txhdrlen(), build the 22-byte 802.3 + RFC 1042 /
+802.1H LLC/SNAP header ahead of payload before DMA mapping, and restore
+ETH_HLEN headroom on flowring reinsert or TX completion.
+
+diff -Naur a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h	2026-11-18 20:27:38.760124377 +0100
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h	2026-11-18 20:27:38.763073597 +0100
+@@ -121,6 +121,7 @@
+  * @max_flowrings: maximum number of tx flow rings supported.
+  * @max_submissionrings: maximum number of submission rings(h2d) supported.
+  * @max_completionrings: maximum number of completion rings(d2h) supported.
++ * @dhdhdr: firmware expects 22-byte 802.3 + LLC/SNAP header before payload.
+  */
+ struct brcmf_bus_msgbuf {
+ 	struct brcmf_commonring *commonrings[BRCMF_NROF_COMMON_MSGRINGS];
+@@ -130,6 +131,7 @@
+ 	u16 max_flowrings;
+ 	u16 max_submissionrings;
+ 	u16 max_completionrings;
++	bool dhdhdr;
+ };
+ 
+ 
+diff -Naur a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c	2026-11-18 20:27:38.760334983 +0100
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c	2026-11-18 20:27:38.763473892 +0100
+@@ -11,6 +11,7 @@
+ #include <linux/types.h>
+ #include <linux/netdevice.h>
+ #include <linux/etherdevice.h>
++#include <linux/unaligned.h>
+ 
+ #include <brcmu_utils.h>
+ #include <brcmu_wifi.h>
+@@ -260,6 +261,7 @@
+ 	u32 reqid;
+ 	wait_queue_head_t ioctl_resp_wait;
+ 	bool ctl_completed;
++	bool dhdhdr;
+ 
+ 	struct brcmf_msgbuf_pktids *tx_pktids;
+ 	struct brcmf_msgbuf_pktids *rx_pktids;
+@@ -695,6 +697,56 @@
+ }
+ 
+ 
++#define BRCMF_MSGBUF_DHDHDR_PAD			8
++
++/**
++ * brcmf_msgbuf_dhdhdr_tx_prep() - Prepend 22-byte 802.3 + LLC/SNAP TX header.
++ * @skb: outbound 802.3 Ethernet II frame to convert in place.
++ * @txhdr: caller buffer receiving the original 14-byte Ethernet II header.
++ *
++ * Firmwares advertising BRCMF_PCIE_SHARED_DHDHDR_SUPPORT read a host-built
++ * 802.3 + RFC 1042/802.1H LLC/SNAP header directly from DMA memory at
++ * data_buf_addr - 22 while tx_msghdr->txhdr retains the Ethernet II header.
++ */
++static int brcmf_msgbuf_dhdhdr_tx_prep(struct sk_buff *skb, u8 *txhdr)
++{
++	u16 eth_len = skb->len;
++	u16 etype;
++	u8 *hdr;
++	int err;
++
++	if (unlikely(eth_len < ETH_HLEN))
++		return -EINVAL;
++
++	memcpy(txhdr, skb->data, ETH_HLEN);
++	err = skb_cow_head(skb, BRCMF_MSGBUF_DHDHDR_PAD);
++	if (unlikely(err))
++		return err;
++
++	hdr = skb_push(skb, BRCMF_MSGBUF_DHDHDR_PAD);
++	/* Keep original big-endian EtherType intact at hdr[20..21]. */
++	memmove(hdr, hdr + BRCMF_MSGBUF_DHDHDR_PAD, 2 * ETH_ALEN);
++	put_unaligned_be16(eth_len - ETH_HLEN + BRCMF_MSGBUF_DHDHDR_PAD,
++			   hdr + 2 * ETH_ALEN);
++	etype = get_unaligned_be16(txhdr + 2 * ETH_ALEN);
++	hdr[14] = 0xAA;
++	hdr[15] = 0xAA;
++	hdr[16] = 0x03;
++	hdr[17] = 0x00;
++	hdr[18] = 0x00;
++	hdr[19] = (etype == ETH_P_AARP || etype == ETH_P_IPX) ? 0xF8 : 0x00;
++
++	return 0;
++}
++
++static void brcmf_msgbuf_dhdhdr_tx_unprep(struct sk_buff *skb, const u8 *txhdr)
++{
++	if (txhdr)
++		memcpy(skb_pull(skb, BRCMF_MSGBUF_DHDHDR_PAD), txhdr, ETH_HLEN);
++	else
++		skb_pull(skb, BRCMF_MSGBUF_DHDHDR_PAD);
++}
++
+ static void brcmf_msgbuf_txflow(struct brcmf_msgbuf *msgbuf, u16 flowid)
+ {
+ 	struct brcmf_flowring *flow = msgbuf->flow;
+@@ -707,6 +759,9 @@
+ 	u32 pktid;
+ 	struct msgbuf_tx_msghdr *tx_msghdr;
+ 	u64 address;
++	u8 txhdr[ETH_HLEN];
++	u16 hdr_len = msgbuf->dhdhdr ? ETH_HLEN + BRCMF_MSGBUF_DHDHDR_PAD : ETH_HLEN;
++	u16 pkt_offset = msgbuf->dhdhdr ? 0 : ETH_HLEN;
+ 
+ 	commonring = msgbuf->flowrings[flowid];
+ 	if (!brcmf_commonring_write_available(commonring))
+@@ -723,9 +778,17 @@
+ 			break;
+ 		}
+ 		skb_orphan(skb);
++		if (msgbuf->dhdhdr && brcmf_msgbuf_dhdhdr_tx_prep(skb, txhdr)) {
++			brcmf_txfinalize(brcmf_get_ifp(drvr,
++						       brcmf_flowring_ifidx_get(flow, flowid)),
++					 skb, false);
++			continue;
++		}
+ 		if (brcmf_msgbuf_alloc_pktid(msgbuf->drvr->bus_if->dev,
+-					     msgbuf->tx_pktids, skb, ETH_HLEN,
+-					     &physaddr, &pktid)) {
++					     msgbuf->tx_pktids, skb,
++					     pkt_offset, &physaddr, &pktid)) {
++			if (msgbuf->dhdhdr)
++				brcmf_msgbuf_dhdhdr_tx_unprep(skb, txhdr);
+ 			brcmf_flowring_reinsert(flow, flowid, skb);
+ 			bphy_err(drvr, "No PKTID available !!\n");
+ 			break;
+@@ -734,6 +797,8 @@
+ 		if (!ret_ptr) {
+ 			brcmf_msgbuf_get_pktid(msgbuf->drvr->bus_if->dev,
+ 					       msgbuf->tx_pktids, pktid);
++			if (msgbuf->dhdhdr)
++				brcmf_msgbuf_dhdhdr_tx_unprep(skb, txhdr);
+ 			brcmf_flowring_reinsert(flow, flowid, skb);
+ 			break;
+ 		}
+@@ -748,9 +813,10 @@
+ 		tx_msghdr->flags |= (skb->priority & 0x07) <<
+ 				    BRCMF_MSGBUF_PKT_FLAGS_PRIO_SHIFT;
+ 		tx_msghdr->seg_cnt = 1;
+-		memcpy(tx_msghdr->txhdr, skb->data, ETH_HLEN);
+-		tx_msghdr->data_len = cpu_to_le16(skb->len - ETH_HLEN);
+-		address = (u64)physaddr;
++		memcpy(tx_msghdr->txhdr, msgbuf->dhdhdr ? txhdr : skb->data,
++		       ETH_HLEN);
++		tx_msghdr->data_len = cpu_to_le16(skb->len - hdr_len);
++		address = (u64)physaddr + (msgbuf->dhdhdr ? hdr_len : 0);
+ 		tx_msghdr->data_buf_addr.high_addr = cpu_to_le32(address >> 32);
+ 		tx_msghdr->data_buf_addr.low_addr =
+ 			cpu_to_le32(address & 0xffffffff);
+@@ -890,6 +956,8 @@
+ 				     msgbuf->tx_pktids, idx);
+ 	if (!skb)
+ 		return;
++	if (msgbuf->dhdhdr)
++		brcmf_msgbuf_dhdhdr_tx_unprep(skb, NULL);
+ 
+ 	set_bit(flowid, msgbuf->txstatus_done_map);
+ 	commonring = msgbuf->flowrings[flowid];
+@@ -1595,6 +1663,10 @@
+ 
+ 	msgbuf->rx_dataoffset = if_msgbuf->rx_dataoffset;
+ 	msgbuf->max_rxbufpost = if_msgbuf->max_rxbufpost;
++	msgbuf->dhdhdr = if_msgbuf->dhdhdr;
++	if (msgbuf->dhdhdr)
++		brcmf_bus_add_txhdrlen(drvr->bus_if->dev,
++				       BRCMF_MSGBUF_DHDHDR_PAD);
+ 
+ 	msgbuf->max_ioctlrespbuf = BRCMF_MSGBUF_MAX_IOCTLRESPBUF_POST;
+ 	msgbuf->max_eventbuf = BRCMF_MSGBUF_MAX_EVENTBUF_POST;
+diff -Naur a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c	2026-11-18 20:27:38.760189063 +0100
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c	2026-11-18 20:27:38.763265929 +0100
+@@ -219,6 +219,7 @@
+ #define BRCMF_PCIE_SHARED_VERSION_MASK		0x00FF
+ #define BRCMF_PCIE_SHARED_DMA_INDEX		0x10000
+ #define BRCMF_PCIE_SHARED_DMA_2B_IDX		0x100000
++#define BRCMF_PCIE_SHARED_DHDHDR_SUPPORT	0x200000
+ #define BRCMF_PCIE_SHARED_HOSTRDY_DB1		0x10000000
+ 
+ #define BRCMF_PCIE_FLAGS_HTOD_SPLIT		0x4000
+@@ -1631,7 +1632,8 @@
+ 
+ 	shared->flags = brcmf_pcie_read_tcm32(devinfo, sharedram_addr);
+ 	shared->version = (u8)(shared->flags & BRCMF_PCIE_SHARED_VERSION_MASK);
+-	brcmf_dbg(PCIE, "PCIe protocol version %d\n", shared->version);
++	brcmf_dbg(PCIE, "PCIe chip 0x%x shared flags=0x%08x ver=%d\n",
++		  devinfo->ci->chip, shared->flags, shared->version);
+ 	if ((shared->version > BRCMF_PCIE_MAX_SHARED_VERSION) ||
+ 	    (shared->version < BRCMF_PCIE_MIN_SHARED_VERSION)) {
+ 		brcmf_err(bus, "Unsupported PCIE version %d\n",
+@@ -2234,6 +2236,11 @@
+ 	bus->msgbuf->rx_dataoffset = devinfo->shared.rx_dataoffset;
+ 	bus->msgbuf->max_rxbufpost = devinfo->shared.max_rxbufpost;
+ 	bus->msgbuf->max_flowrings = devinfo->shared.max_flowrings;
++	bus->msgbuf->dhdhdr =
++		!!(devinfo->shared.flags & BRCMF_PCIE_SHARED_DHDHDR_SUPPORT);
++	if (bus->msgbuf->dhdhdr)
++		dev_info(&devinfo->pdev->dev,
++			 "firmware requires DHDHDR TX header conversion\n");
+ 
+ 	init_waitqueue_head(&devinfo->mbdata_resp_wait);
+ 
