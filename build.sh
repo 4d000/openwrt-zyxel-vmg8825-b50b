@@ -84,8 +84,12 @@ fi
 make defconfig
 
 echo "[6/6] Downloading sources and compiling with -j${JOBS}..."
-make download -j"$JOBS"
-make -j"$JOBS" V=s
+EXTRA_MAKE_ARGS=""
+if [ "$ALL_KMODS" = "1" ]; then
+	EXTRA_MAKE_ARGS="IGNORE_ERRORS=m"
+fi
+make download -j"$JOBS" $EXTRA_MAKE_ARGS
+make -j"$JOBS" V=s $EXTRA_MAKE_ARGS
 
 echo ""
 echo "Build complete! Output images:"

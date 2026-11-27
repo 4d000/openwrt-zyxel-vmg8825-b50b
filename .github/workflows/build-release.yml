@@ -73,7 +73,8 @@ jobs:
           cp -a openwrt-overlay/. openwrt-src/
 
       - name: Restore OpenWrt download, host tools & ccache caches (cuts rebuild time ~3x)
-        uses: actions/cache@v4
+        id: build-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             openwrt-src/dl
@@ -114,11 +115,26 @@ jobs:
 
       - name: Download sources
         working-directory: openwrt-src
-        run: make download -j"$(nproc)"
+        run: make download -j"$(nproc)" IGNORE_ERRORS=m
 
       - name: Build OpenWrt images and kernel modules
         working-directory: openwrt-src
-        run: make -j"$(nproc)" || make -j1 V=s
+        run: |
+          # IGNORE_ERRORS=m matches official OpenWrt buildbots: required (=y) image
+          # packages and kernel remain strictly fatal, while broken optional (=m)
+          # third-party feed kmods (e.g. libpfring on Linux 6.18) are skipped cleanly.
+          make -j"$(nproc)" IGNORE_ERRORS=m || make -j1 V=s IGNORE_ERRORS=m
+
+      - name: Save build cache (even on partial runs)
+        if: always() && steps.build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            openwrt-src/dl
+            openwrt-src/staging_dir/host
+            openwrt-src/staging_dir/hostpkg
+            ~/.ccache
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
 
       - name: Prepare release artifacts (100% GPLv2, zero proprietary blobs)
         if: inputs.skip_release != true
