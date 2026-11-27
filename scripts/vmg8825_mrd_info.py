@@ -44,9 +44,9 @@ def inspect_cferom(path: str):
     if 0 < mac_count <= 256:
         print(f"  MAC Count      : {mac_count}")
 
-    # Zyxel MRD block starts at VendorName ("Zyxel", 32B) + ProductName (32B) + ModelID (4 nibble bytes)
+    # Zyxel MRD block starts at VendorName ("Zyxel ...", 32B) + ProductName (32B) + ModelID (4 nibble bytes)
     mrd_off = -1
-    for vendor_marker in (b"Zyxel\x00", b"ZyXEL\x00"):
+    for vendor_marker in (b"Zyxel", b"ZyXEL"):
         pos = data.find(vendor_marker, 0x10000)
         if pos != -1:
             mrd_off = pos
