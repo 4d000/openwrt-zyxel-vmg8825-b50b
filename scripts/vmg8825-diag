@@ -1,0 +1,69 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Zyxel VMG8825-B50B Hardware & Performance Diagnostics
+# Outputs a clean, privacy-safe summary (no MACs, IPs, SSIDs, or secrets)
+# suitable for troubleshooting or attaching to GitHub Issues.
+
+set -u
+
+echo "================================================================"
+echo " Zyxel VMG8825-B50B OpenWrt Diagnostic Report"
+echo "================================================================"
+
+echo ""
+echo "--- System ---"
+[ -f /etc/openwrt_release ] && grep -E '^DISTRIB_(RELEASE|REVISION|TARGET|DESCRIPTION)=' /etc/openwrt_release
+echo "Kernel : $(uname -a)"
+echo "Uptime : $(uptime)"
+free -m | awk 'NR<=2{print}'
+
+echo ""
+echo "--- Active NAND Bank & MTD Layout ---"
+dmesg | grep -E 'ofpart_bcm4908|bcm63138_rdp|L2C-310' | tail -n 10 || true
+cat /proc/mtd
+echo ""
+df -h / /overlay /tmp 2>/dev/null || df -h
+
+echo ""
+echo "--- Broadcom Runner Hardware NAT Offload ---"
+fw_sw=$(uci -q get firewall.@defaults[0].flow_offloading || echo "unset")
+fw_hw=$(uci -q get firewall.@defaults[0].flow_offloading_hw || echo "unset")
+echo "UCI flow_offloading=${fw_sw} flow_offloading_hw=${fw_hw}"
+if [ -r /proc/net/nf_conntrack ]; then
+	total_flows=$(wc -l < /proc/net/nf_conntrack)
+	hw_flows=$(grep -c 'HW_OFFLOAD' /proc/net/nf_conntrack 2>/dev/null || echo 0)
+	echo "Active conntrack flows: ${total_flows} (HW_OFFLOAD: ${hw_flows})"
+fi
+
+echo ""
+echo "--- Ethernet DSA Switch Link States ---"
+for p in lan1 lan2 lan3 lan4 wan; do
+	if [ -d "/sys/class/net/$p" ]; then
+		carrier=$(cat "/sys/class/net/$p/carrier" 2>/dev/null || echo "down")
+		speed=$(cat "/sys/class/net/$p/speed" 2>/dev/null || echo "-")
+		duplex=$(cat "/sys/class/net/$p/duplex" 2>/dev/null || echo "-")
+		echo "  $p: carrier=${carrier} speed=${speed}Mbps duplex=${duplex}"
+	fi
+done
+
+echo ""
+echo "--- IRQ Affinity & RPS Pipeline ---"
+for dev in eth0 phy0-ap0 phy1-ap0; do
+	if [ -r "/sys/class/net/$dev/queues/rx-0/rps_cpus" ]; then
+		echo "  $dev rps_cpus=$(cat "/sys/class/net/$dev/queues/rx-0/rps_cpus")"
+	fi
+done
+grep -E 'CPU0|eth0|brcm|xhci' /proc/interrupts | head -n 12 || true
+
+echo ""
+echo "--- Wi-Fi Firmware & Radio Status ---"
+if command -v vmg8825-extract-wifi-fw >/dev/null 2>&1; then
+	vmg8825-extract-wifi-fw --status
+fi
+dmesg | grep -E 'brcmfmac.*(Firmware|DHDHDR|BCM43|chip)' | tail -n 10 || true
+
+echo ""
+echo "--- USB & SFP Probing ---"
+dmesg | grep -iE 'xhci|usb-storage|sfp' | tail -n 8 || true
+echo "================================================================"

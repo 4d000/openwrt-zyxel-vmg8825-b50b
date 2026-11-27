@@ -1,5 +1,9 @@
 name: Build OpenWrt Release & kmod Feed
 
+# Cost & quota protection:
+# - Public repositories get UNLIMITED free GitHub Actions minutes on ubuntu-24.04.
+# - Even on private repos, this workflow NEVER runs on normal git pushes or PRs;
+#   it runs ONLY when triggered manually (workflow_dispatch) or on explicit `v*` tags.
 on:
   workflow_dispatch:
     inputs:
@@ -8,12 +12,21 @@ on:
         required: false
         default: ''
       build_all_kmods:
-        description: 'Build all kmod-* packages for GitHub Pages apk feed'
+        description: 'Build ALL kmod-* packages for GitHub Pages feed (slower; auto-enabled on v* tags)'
         type: boolean
-        default: true
+        default: false
+      skip_release:
+        description: 'Compile check only (skip creating GitHub Release & Pages deploy)'
+        type: boolean
+        default: false
   push:
     tags:
       - 'v*'
+
+# Prevent accidental duplicate 60-minute builds from running at the same time
+concurrency:
+  group: openwrt-vmg8825-build
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -26,6 +39,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 180
     steps:
       - name: Checkout overlay repository
         uses: actions/checkout@v4
@@ -58,15 +72,30 @@ jobs:
           done
           cp -a openwrt-overlay/. openwrt-src/
 
-      - name: Restore OpenWrt download & ccache cache
+      - name: Restore OpenWrt download, host tools & ccache caches (cuts rebuild time ~3x)
         uses: actions/cache@v4
         with:
           path: |
             openwrt-src/dl
+            openwrt-src/staging_dir/host
+            openwrt-src/staging_dir/hostpkg
             ~/.ccache
-          key: openwrt-vmg8825-${{ env.OPENWRT_COMMIT }}-${{ hashFiles('openwrt-overlay/target/linux/bcm63xx_arm/vmg8825-b50b.diffconfig') }}
+          key: openwrt-vmg8825-${{ env.OPENWRT_COMMIT }}-${{ hashFiles('openwrt-overlay/target/linux/bcm63xx_arm/vmg8825-b50b.diffconfig', 'openwrt-overlay/target/linux/bcm63xx_arm/config-6.18') }}
           restore-keys: |
             openwrt-vmg8825-${{ env.OPENWRT_COMMIT }}-
+
+      - name: Inject persistent apk signing key (optional APK_SIGN_KEY secret)
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          if [ -n "$APK_SIGN_KEY" ]; then
+            echo "Using persistent APK_SIGN_KEY secret for apk feed signing."
+            printf '%s\n' "$APK_SIGN_KEY" > openwrt-src/private-key.pem
+            chmod 600 openwrt-src/private-key.pem
+            openssl ec -in openwrt-src/private-key.pem -pubout -out openwrt-src/public-key.pem
+          else
+            echo "No APK_SIGN_KEY secret configured; OpenWrt will generate an ephemeral key for this build."
+          fi
 
       - name: Update feeds and configure build
         working-directory: openwrt-src
@@ -75,8 +104,11 @@ jobs:
           ./scripts/feeds install -a
           cp target/linux/bcm63xx_arm/vmg8825-b50b.diffconfig .config
           echo "CONFIG_CCACHE=y" >> .config
-          if [ "${{ inputs.build_all_kmods || 'true' }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.build_all_kmods }}" = "true" ]; then
+            echo "Enabling CONFIG_ALL_KMODS=y for complete GitHub Pages kmod-* feed"
             echo "CONFIG_ALL_KMODS=y" >> .config
+          else
+            echo "Fast image build mode (CONFIG_ALL_KMODS disabled)"
           fi
           make defconfig
 
@@ -89,6 +121,7 @@ jobs:
         run: make -j"$(nproc)" || make -j1 V=s
 
       - name: Prepare release artifacts (100% GPLv2, zero proprietary blobs)
+        if: inputs.skip_release != true
         run: |
           mkdir -p release-artifacts pages-site/targets/bcm63xx_arm/generic/packages
           OUT="openwrt-src/bin/targets/bcm63xx_arm/generic"
@@ -97,6 +130,7 @@ jobs:
           cp "$OUT"/openwrt-bcm63xx_arm-generic-zyxel_vmg8825-b50b.manifest release-artifacts/ || true
           cp scripts/vmg8825_factory_builder.py release-artifacts/
           cp scripts/vmg8825_ssh_backup_and_install.sh release-artifacts/
+          cp scripts/vmg8825_mrd_info.py release-artifacts/
           (cd release-artifacts && sha256sum openwrt-* vmg8825_* > sha256sums)
 
           # Stage kmod-* apk feed for GitHub Pages
@@ -111,10 +145,12 @@ jobs:
           <h1>OpenWrt Zyxel VMG8825-B50B (bcm63xx_arm) Kernel Module Feed</h1>
           <p>Target apk repository: <code>targets/bcm63xx_arm/generic/packages/packages.adb</code></p>
           <p>Public signing key: <a href="public-key.pem">public-key.pem</a></p>
+          <p>Setup guide: <a href="https://github.com/4d000/openwrt-zyxel-vmg8825-b50b/blob/main/docs/PACKAGES_AND_UPDATES.md">PACKAGES_AND_UPDATES.md</a></p>
           </body></html>
           HTML
 
       - name: Determine release tag
+        if: inputs.skip_release != true
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
@@ -127,6 +163,7 @@ jobs:
           echo "value=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub Release
+        if: inputs.skip_release != true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.value }}
@@ -139,16 +176,19 @@ jobs:
 
             **100% Legal Distribution:** This release contains **zero proprietary Zyxel/Broadcom blobs** (`cferam` is not included; Wi-Fi uses official `linux-firmware`).
 
-            - **First-time install from stock Zyxel Web GUI:** Download `openwrt-bcm63xx_arm-generic-zyxel_vmg8825-b50b-squashfs.bin` and `vmg8825_factory_builder.py`, then follow [docs/INSTALLATION.md](docs/INSTALLATION.md) to assemble your `.ras.bin` using your own official Zyxel firmware.
+            - **First-time install from stock Zyxel Web GUI:** Download `openwrt-bcm63xx_arm-generic-zyxel_vmg8825-b50b-squashfs.bin` and `vmg8825_factory_builder.py`, then follow [docs/INSTALLATION.md](docs/INSTALLATION.md).
             - **Upgrading an existing OpenWrt VMG8825-B50B:** Upload `openwrt-bcm63xx_arm-generic-zyxel_vmg8825-b50b-squashfs.bin` directly in LuCI (*System → Backup / Flash Firmware*) or run `vmg8825-upgrade` via SSH — your device's own `cferam.XXX` is preserved automatically.
+            - **Installing `kmod-*` packages:** Follow [docs/PACKAGES_AND_UPDATES.md](docs/PACKAGES_AND_UPDATES.md) to add the GitHub Pages `apk` feed.
 
       - name: Upload GitHub Pages artifact (kmod-* apk feed)
+        if: inputs.skip_release != true
         uses: actions/upload-pages-artifact@v3
         with:
           path: pages-site
 
   deploy-pages:
     needs: build
+    if: inputs.skip_release != true
     runs-on: ubuntu-24.04
     environment:
       name: github-pages

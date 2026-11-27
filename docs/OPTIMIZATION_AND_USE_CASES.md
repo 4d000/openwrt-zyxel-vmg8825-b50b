@@ -48,6 +48,8 @@ ssh root@192.168.1.1 reboot
 
 ## 2. Installing Packages (`apk`) & Kernel Modules (`kmod-*`)
 
+For the complete step-by-step guide (including signing key persistence across releases, LuCI setup, and firmware updates), see **[docs/PACKAGES_AND_UPDATES.md](PACKAGES_AND_UPDATES.md)**.
+
 OpenWrt snapshots on this port use the **`apk`** package manager:
 - **All 6 official upstream OpenWrt `arm_cortex-a9` feeds** (`base`, `luci`, `packages`, `routing`, `telephony`, `video`) work natively out of the box — thousands of user-space packages (`adguardhome`, `samba4-server`, `htop`, `iperf3`, `tailscale`, `ddns-scripts`, `luci-app-*`, etc.) install immediately with:
   ```bash
@@ -85,11 +87,11 @@ apk add adguardhome
 ```
 *Tip:* Set AdGuard Home's query log storage to in-memory (or a mounted USB stick) and disable high-frequency stats disk writes so SLC NAND lasts decades.
 
-### C. 5-Port Managed VLAN Gigabit Switch + AC2200 Dumb AP
-Because all 5 Ethernet ports (`lan1`, `lan2`, `lan3`, `lan4`, `wan`) are exposed via Linux **DSA** (`bcm_sf2`), you can turn the VMG8825-B50B into a **5-port 802.1Q VLAN-aware managed switch + high-power AC2200 Wi-Fi Access Point**:
+### C. 5-Port Managed 802.1Q VLAN Gigabit Switch + Multi-SSID AC2200 Access Point
+Because all 5 Ethernet ports (`lan1`, `lan2`, `lan3`, `lan4`, `wan`) are exposed via Linux **DSA** (`bcm_sf2`), you can use the VMG8825-B50B either as a **full Layer-3 VLAN router** (routing & firewalling between VLANs) or in **Layer-2+ Switch / Access Point mode** behind another main router (sometimes called "Dumb AP" in OpenWrt docs simply meaning DHCP/NAT are disabled, even though it still manages full 802.1Q VLANs, multi-SSID VLAN bridging, 802.11r roaming, and QoS!):
 1. Add `wan` into `br-lan` (giving you 5 unified Gigabit switch ports).
-2. Enable **Bridge VLAN Filtering** under **Network → Interfaces → Devices → `br-lan` → Configure → Bridge VLAN filtering** to tag/untag separate Guest, IoT, Management, and Main VLANs per port and per SSID.
-3. Disable DHCP/DNS on `lan`, assign a static IP on your main subnet, and enjoy wire-speed L2 switching across all 5 ports + 4×4 5 GHz Wi-Fi.
+2. Enable **Bridge VLAN Filtering** under **Network → Interfaces → Devices → `br-lan` → Configure → Bridge VLAN filtering** to tag/untag separate Main, Guest, IoT, and Management VLANs on any physical port and bind each Wi-Fi SSID to its own VLAN (`br-lan.10`, `br-lan.20`, etc.).
+3. If running behind another main router, disable DHCP/DNS on `lan` and assign a static management IP on your management VLAN — you get wire-speed hardware L2 switching across all 5 ports + multi-VLAN 4×4 5 GHz Wi-Fi.
 
 ### D. Lightweight USB 3.0 NAS / Media Server
 The rear **USB 3.0** port supports full xHCI + UAS (`kmod-usb-storage-uas` pre-installed):

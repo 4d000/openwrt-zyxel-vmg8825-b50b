@@ -13,7 +13,9 @@ Mainline **OpenWrt (Linux 6.18)** port for the **Zyxel VMG8825-B50B** (also wide
 ## Quick Navigation
 
 - **[Installation, Backup & Return-to-Stock Guide](docs/INSTALLATION.md)** — Complete step-by-step instructions for **every user type** (standard Web GUI without SSH, users who already have root/supervisor SSH, serial UART/CFE recovery, how to legally obtain OEM files, full NAND backup, and 2-click return to stock Zyxel firmware).
-- **[Optimization & Use Cases Guide](docs/OPTIMIZATION_AND_USE_CASES.md)** — Optional 2020 OEM Wi-Fi firmware boost, WireGuard / OpenVPN DCO VPN gateway, AdGuard Home, 5-port managed VLAN switch + AC2200 AP, USB 3.0 NAS, and `apk` package management.
+- **[Packages (`apk` Feeds) & Firmware Updates Guide](docs/PACKAGES_AND_UPDATES.md)** — How to add the GitHub Pages `kmod-*` kernel module feed, install packages via `apk`, update firmware with `vmg8825-upgrade`, and configure GitHub Actions without wasting quota.
+- **[Optimization & Use Cases Guide](docs/OPTIMIZATION_AND_USE_CASES.md)** — Optional 2020 OEM Wi-Fi firmware boost, WireGuard / OpenVPN DCO VPN gateway, AdGuard Home, 5-port 802.1Q managed VLAN switch + multi-SSID AC2200 Access Point, and USB 3.0 NAS.
+- **[Hardware Reference & Tinkering Guide](docs/TINKERING_AND_HARDWARE.md)** — Exact 512 MiB NAND MTD layout, CFE serial console cheatsheet, PCIe/DSA/SFP/GPIO map, and live diagnostics (`vmg8825-diag`, `vmg8825_mrd_info.py`).
 - **[Contributing & Porting Guide](docs/CONTRIBUTING_AND_PORTING.md)** — Local builds (`./build.sh`), open roadmap (SFP SerDes, upstreaming to `openwrt/openwrt`), and porting sibling `BCM63138` routers.
 
 ---
@@ -64,7 +66,7 @@ Mainline **OpenWrt (Linux 6.18)** port for the **Zyxel VMG8825-B50B** (also wide
 - You have **FTTH / FTTC (with external ONT or bridge modem)** connected via the Gigabit Ethernet **WAN** port and want a modern, secure **Linux 6.18** router with **940 Mbps hardware-offloaded NAT**.
 - You want to repurpose an inexpensive/spare **Zyxel VMG8825-B50B** or **WindTre Home&Life HUB** into:
   - A high-speed **WireGuard / OpenVPN DCO VPN router** (200–260 Mbps)
-  - A **5-port managed VLAN Gigabit switch + AC2200 Dumb AP**
+  - A **5-port 802.1Q managed VLAN Gigabit switch + multi-SSID AC2200 Access Point** (supports per-port VLAN tagging, isolated Guest/IoT SSIDs, 802.11r fast roaming — either as a standalone L3 router or in AP/switch mode behind another main router)
   - A **network-wide AdGuard Home / DNS-over-HTTPS** appliance (512 MiB RAM + 142 MiB NAND storage)
   - A lightweight **USB 3.0 home NAS / SMB / DLNA** box
 - You want to replace the end-of-life Zyxel stock firmware (stuck on **Linux 3.4 from 2012** with unpatched CVEs and ISP TR-069 remote management).
