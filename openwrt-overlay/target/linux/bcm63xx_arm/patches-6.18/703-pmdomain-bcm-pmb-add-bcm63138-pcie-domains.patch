@@ -1,6 +1,6 @@
---- a/drivers/pmdomain/bcm/bcm-pmb.c
-+++ b/drivers/pmdomain/bcm/bcm-pmb.c
-@@ -239,6 +239,24 @@ static int bcm_pmb_power_on(struct gener
+--- a/drivers/pmdomain/bcm/bcm-pmb.c	2026-10-30 13:06:41.000000000 +0100
++++ b/drivers/pmdomain/bcm/bcm-pmb.c	2026-11-27 22:59:50.040020761 +0100
+@@ -240,8 +240,25 @@
  	case BCM_PMB_PCIE0:
  	case BCM_PMB_PCIE1:
  	case BCM_PMB_PCIE2:
@@ -24,7 +24,10 @@
 +			}
 +		}
  		return bcm_pmb_power_on_device(pmb, data->bus, data->device);
-@@ -330,6 +348,8 @@ static int bcm_pmb_probe(struct platform
+ 	case BCM_PMB_SATA:
+ 		return bcm_pmb_power_on_sata(pmb, data->bus, data->device);
+@@ -319,6 +336,8 @@
+ 		pd->genpd.name = e->name;
  		pd->genpd.power_on = bcm_pmb_power_on;
  		pd->genpd.power_off = bcm_pmb_power_off;
 +		if (of_device_is_compatible(dev->of_node, "brcm,bcm63138-pmb"))
@@ -32,7 +35,7 @@
  
  		pm_genpd_init(&pd->genpd, NULL, true);
  		pmb->genpd_onecell_data.domains[e->id] = &pd->genpd;
-@@ -348,6 +368,9 @@ static const struct bcm_pmb_pd_data bcm_
+@@ -343,6 +362,9 @@
  
  static const struct bcm_pmb_pd_data bcm_pmb_bcm63138_data[] = {
  	{ .name = "sata", .id = BCM_PMB_SATA, .bus = 0, .device = 3, },

@@ -1,13 +1,17 @@
---- a/arch/arm/mach-bcm/Makefile
-+++ b/arch/arm/mach-bcm/Makefile
-@@ -59,3 +59,3 @@ endif
+--- a/arch/arm/mach-bcm/Makefile	2026-10-30 13:06:41.000000000 +0100
++++ b/arch/arm/mach-bcm/Makefile	2026-11-27 22:59:50.047735868 +0100
+@@ -58,6 +58,6 @@
+ 
+ # BCMBCA
  ifeq ($(CONFIG_ARCH_BCMBCA),y)
 -obj-$(CONFIG_DEBUG_BCMBCA)	+= board_bcmbca.o
 +obj-y				+= board_bcmbca.o
  obj-$(CONFIG_SMP)		+= bcm63xx_smp.o bcm63xx_pmb.o
---- a/arch/arm/mach-bcm/board_bcmbca.c
-+++ b/arch/arm/mach-bcm/board_bcmbca.c
-@@ -4,6 +4,20 @@
+ endif
+--- a/arch/arm/mach-bcm/board_bcmbca.c	2026-10-30 13:06:41.000000000 +0100
++++ b/arch/arm/mach-bcm/board_bcmbca.c	2026-11-27 22:59:50.048094805 +0100
+@@ -3,6 +3,21 @@
+ 
  #include <asm/mach/arch.h>
  #include <asm/mach/map.h>
 +#include <asm/siginfo.h>
@@ -28,7 +32,8 @@
  
  /* This is needed for LL-debug/earlyprintk/debug-macro.S */
  static struct map_desc bcmbca_io_desc[] __initdata = {
-@@ -23,9 +37,11 @@ static void __init bcmbca_map_io(void)
+@@ -21,11 +36,13 @@
+ 
  static const char * const bcmbca_dt_compat[] = {
  	/* TODO: Add other BCMBCA SoCs here to get debug UART support */
 +	"brcm,bcm63138",
@@ -40,3 +45,4 @@
  	.map_io = bcmbca_map_io,
 +	.init_early = bcmbca_init_early,
  	.dt_compat = bcmbca_dt_compat,
+ MACHINE_END

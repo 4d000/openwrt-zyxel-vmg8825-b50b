@@ -30,7 +30,7 @@
  }
  
  static int brcm_pcie_enable_msi(struct brcm_pcie *pcie)
-@@ -1034,6 +1043,39 @@ static u32 brcm_ubus_reg_offset(int bar)
+@@ -1034,6 +1043,40 @@ static u32 brcm_ubus_reg_offset(int bar)
  		return PCIE_MISC_UBUS_BAR4_CONFIG_REMAP + 8 * (bar - 4);
  }
  
