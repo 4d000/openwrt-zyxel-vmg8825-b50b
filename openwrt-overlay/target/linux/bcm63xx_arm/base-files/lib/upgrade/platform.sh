@@ -140,16 +140,6 @@ platform_check_image() {
 		if ! echo "$bootfs_ls" | grep -q "1-openwrt"; then
 			notify_firmware_no_backup
 		fi
-		# Public cferam-free squashfs.bin requires an existing split bootfs
-		# partition (OpenWrt already installed on NAND) so we can safely preserve
-		# the device's own cferam.XXX inside the 8 MiB bootfs partition.
-		if ! echo "$bootfs_ls" | grep -q "^cferam\.000$"; then
-			if [ -z "$(find_mtd_index bootfs)" ] || [ -z "$(find_mtd_index ubi)" ]; then
-				echo "Image does not include cferam.000. For first-time flash from initramfs, build a factory .ras.bin with scripts/vmg8825_factory_builder.py using your own OEM firmware." >&2
-				rm -f "$tmp"
-				return 1
-			fi
-		fi
 		rm -f "$tmp"
 		return 0
 	fi
@@ -173,7 +163,7 @@ platform_do_upgrade_ubi() {
 	local img="$1"
 	local dir="/tmp/sysupgrade-bcm63138"
 	local saved_cfe="/tmp/sysupgrade-saved-cferam.bin"
-	local mtd_bootfs_size img_bootfs_size cferam has_cferam=0
+	local mtd_bootfs_size img_bootfs_size cferam
 
 	mtd_bootfs_size=$(grep '"bootfs"' /proc/mtd | sed 's/mtd[0-9]*:[ \t]*\([^ \t]*\).*/\1/')
 	[ -z "$mtd_bootfs_size" ] && return 1
@@ -187,59 +177,43 @@ platform_do_upgrade_ubi() {
 
 	cferam=$(platform_calc_new_cferam)
 	if bcm4908img bootfs -i "$img" ls 2>/dev/null | grep -q "^cferam\.000$"; then
-		has_cferam=1
 		bcm4908img bootfs -i "$img" mv cferam.000 "$cferam" || {
 			echo "Failed to rename cferam.000 to $cferam" >&2
 			return 1
 		}
 	else
-		# Public cferam-free image: rescue device's own cferam.XXX BEFORE erasing bootfs
+		# Public cferam-free image: rescue device's own cferam.XXX and inject
+		# it directly into the JFFS2 bootfs inside $img BEFORE touching NAND.
 		platform_save_existing_cferam "$saved_cfe" || {
 			echo "Failed to rescue existing cferam.XXX from NAND; aborting before erase!" >&2
 			return 1
 		}
+		bcm4908img bootfs -i "$img" add "$saved_cfe" "$cferam" || {
+			echo "Failed to inject $cferam into bootfs; aborting before erase!" >&2
+			rm -f "$saved_cfe"
+			return 1
+		}
+		rm -f "$saved_cfe"
 	fi
 
 	rm -rf "$dir"
 	mkdir -p "$dir"
 	bcm4908img extract -i "$img" -t rootfs > "$dir/root" || {
 		echo "Failed to extract UBI rootfs" >&2
-		rm -rf "$dir" "$saved_cfe"
+		rm -rf "$dir"
 		return 1
 	}
 
 	mtd erase bootfs || {
 		echo "Failed to erase bootfs" >&2
-		rm -rf "$dir" "$saved_cfe"
+		rm -rf "$dir"
 		return 1
 	}
 	bcm4908img extract -i "$img" -t bootfs | mtd write - bootfs || {
 		echo "Failed to write bootfs" >&2
-		rm -rf "$dir" "$saved_cfe"
+		rm -rf "$dir"
 		return 1
 	}
-
-	if [ "$has_cferam" = "0" ]; then
-		# Copy rescued cferam.XXX into fresh 8 MiB bootfs with compr=none
-		# (Broadcom cferom requires uncompressed JFFS2 data nodes for cferam).
-		local mnt="/tmp/sysupgrade-bootfs-rw"
-		rm -rf "$mnt"
-		mkdir -p "$mnt"
-		if ! mount -t jffs2 -o compr=none "mtd:bootfs" "$mnt"; then
-			echo "CRITICAL: Failed to mount bootfs RW to restore $cferam" >&2
-			rm -rf "$mnt" "$dir" "$saved_cfe"
-			return 1
-		fi
-		cp "$saved_cfe" "$mnt/$cferam" && sync
-		if [ ! -s "$mnt/$cferam" ]; then
-			echo "CRITICAL: Failed to restore $cferam into bootfs" >&2
-			umount "$mnt" 2>/dev/null
-			rm -rf "$mnt" "$dir" "$saved_cfe"
-			return 1
-		fi
-		umount "$mnt" 2>/dev/null
-		rm -rf "$mnt" "$saved_cfe"
-	fi
 
 	nand_do_upgrade "$dir/root"
 }
@@ -267,16 +241,26 @@ platform_do_upgrade() {
 	local is_bcm4908=0
 	if bcm4908img info -i "$img" >/dev/null 2>&1; then
 		is_bcm4908=1
-		if ! bcm4908img bootfs -i "$img" ls 2>/dev/null | grep -q "^cferam\.000$"; then
-			echo "ERROR: First-time flash from initramfs requires a factory .ras.bin containing cferam.000." >&2
-			rm -f "$img"
-			exit 1
+		if bcm4908img bootfs -i "$img" ls 2>/dev/null | grep -q "^cferam\.000$"; then
+			bcm4908img bootfs -i "$img" mv cferam.000 "$cferam" || {
+				echo "Failed to rename cferam.000 to $cferam" >&2
+				rm -f "$img"
+				exit 1
+			}
+		else
+			local saved_cfe="/tmp/sysupgrade-saved-cferam.bin"
+			platform_save_existing_cferam "$saved_cfe" || {
+				echo "Failed to rescue existing cferam.XXX from NAND; aborting before erase!" >&2
+				rm -f "$img"
+				exit 1
+			}
+			bcm4908img bootfs -i "$img" add "$saved_cfe" "$cferam" || {
+				echo "Failed to inject $cferam into bootfs; aborting before erase!" >&2
+				rm -f "$img" "$saved_cfe"
+				exit 1
+			}
+			rm -f "$saved_cfe"
 		fi
-		bcm4908img bootfs -i "$img" mv cferam.000 "$cferam" || {
-			echo "Failed to rename cferam.000 to $cferam" >&2
-			rm -f "$img"
-			exit 1
-		}
 	fi
 
 	local ubi_idx=$(find_mtd_index ubi)
