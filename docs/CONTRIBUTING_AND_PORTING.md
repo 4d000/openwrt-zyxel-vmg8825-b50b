@@ -66,10 +66,10 @@ cd openwrt-zyxel-vmg8825-b50b
 Because this repository already solves the hardest SoC-level bring-up hurdles on Linux 6.18 (**PL310 L2 cache**, **PCIe PMB power domains + imprecise abort handler**, **USB 3.0 PHY**, **StarFighter2 GPHY/DSA**, **4-core Runner HW NAT offload**, **dual-bank `cferam` MTD parser**, and **brcmfmac DHDHDR**), porting sibling BCM63138 boards mainly requires a new `.dts`, `01_leds`/`02_network` entries, and image packaging rules!
 
 Great candidate sibling devices sharing **BCM63138**:
-- **Zyxel VMG8828-B50B** / **VMG8924-B10D**
-- **Sercomm WD300** (TIM Hub / Vodafone)
-- **Technicolor DGA4130 / DGA4132** (TIM Hub — very popular in Italy!)
-- **Netgear D7000 (v1)**
+- **Zyxel VMG8828-B50B** (WindTre Home&Life HUB AC2600 sibling)
+- **Sercomm WD300** (WindTre Home&Life HUB sibling)
+- **Technicolor DGA4130** (TIM Smart Modem Plus / AGTEF) & **DGA4132** (TIM Hub / AGTHP)
+- **Netgear Nighthawk D7000 (v1)**
 - **ASUS DSL-AC87VG**
 
 ### 4. Automated Testing & Documentation
