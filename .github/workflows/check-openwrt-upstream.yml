@@ -1,0 +1,62 @@
+name: Check Upstream OpenWrt Releases
+
+# Lightweight (~15s, zero compilation) weekly watcher that notifies you via a
+# GitHub Issue whenever a new official OpenWrt release tag is published.
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check latest official OpenWrt release and open notification issue if new
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Fetch latest stable release from openwrt/openwrt
+          REL_JSON=$(curl -fsSL https://api.github.com/repos/openwrt/openwrt/releases/latest)
+          TAG=$(printf '%s' "$REL_JSON" | jq -r '.tag_name // empty')
+          URL=$(printf '%s' "$REL_JSON" | jq -r '.html_url // empty')
+          PUB=$(printf '%s' "$REL_JSON" | jq -r '.published_at // empty')
+
+          if [ -z "$TAG" ]; then
+            echo "Could not determine latest openwrt/openwrt release tag."
+            exit 0
+          fi
+          echo "Latest upstream OpenWrt release: $TAG ($PUB)"
+
+          TITLE="Upstream OpenWrt release available: ${TAG}"
+
+          # Check if an issue (open or closed) already exists for this tag so we never duplicate
+          EXISTING=$(gh issue list -R "$REPO" --state all --search "\"${TITLE}\" in:title" --json title -q 'length')
+          if [ "${EXISTING:-0}" -gt 0 ]; then
+            echo "Notification issue already exists for ${TAG}; nothing to do."
+            exit 0
+          fi
+
+          BODY=$(cat <<EOF
+          A new official upstream OpenWrt release has been published: **[${TAG}](${URL})** (published \`${PUB}\`).
+
+          ### How to Safely Test This Release Before Updating
+          1. Go to **Actions → Build OpenWrt Release & kmod Feed → Run workflow**.
+          2. Set:
+             - \`openwrt_ref\`: \`${TAG}\`
+             - \`build_all_kmods\`: \`false\` (fast test compile)
+             - \`skip_release\`: \`true\` (compile check only — will not publish)
+          3. If it compiles cleanly and boots/tests well on your VMG8825-B50B, update \`OPENWRT_COMMIT\` in \`.github/workflows/build-release.yml\` and \`build.sh\`, then push a new release tag (e.g. \`v2026.xx-r1\`) to publish the update and refresh the GitHub Pages \`kmod-*\` feed.
+
+          *(Close this issue to dismiss; the watcher will not re-open an issue for \`${TAG}\`.)*
+          EOF
+          )
+
+          gh issue create -R "$REPO" --title "$TITLE" --body "$BODY"
+          echo "Created notification issue for ${TAG}."
