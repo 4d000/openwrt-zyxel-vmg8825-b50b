@@ -32,8 +32,8 @@ fw_hw=$(uci -q get firewall.@defaults[0].flow_offloading_hw || echo "unset")
 echo "UCI flow_offloading=${fw_sw} flow_offloading_hw=${fw_hw}"
 if [ -r /proc/net/nf_conntrack ]; then
 	total_flows=$(wc -l < /proc/net/nf_conntrack)
-	hw_flows=$(grep -c 'HW_OFFLOAD' /proc/net/nf_conntrack 2>/dev/null || echo 0)
-	echo "Active conntrack flows: ${total_flows} (HW_OFFLOAD: ${hw_flows})"
+	hw_flows=$(grep -c 'HW_OFFLOAD' /proc/net/nf_conntrack 2>/dev/null) || true
+	echo "Active conntrack flows: ${total_flows} (HW_OFFLOAD: ${hw_flows:-0})"
 fi
 
 echo ""

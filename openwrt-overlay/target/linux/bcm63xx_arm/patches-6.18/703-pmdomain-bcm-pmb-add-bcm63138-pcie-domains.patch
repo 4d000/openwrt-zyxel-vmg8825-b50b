@@ -1,14 +1,14 @@
 --- a/drivers/pmdomain/bcm/bcm-pmb.c	2026-10-30 13:06:41.000000000 +0100
-+++ b/drivers/pmdomain/bcm/bcm-pmb.c	2026-11-27 22:59:50.040020761 +0100
-@@ -240,8 +240,25 @@
++++ b/drivers/pmdomain/bcm/bcm-pmb.c	2026-11-18 13:50:21.712556387 +0100
+@@ -240,6 +240,16 @@
  	case BCM_PMB_PCIE0:
  	case BCM_PMB_PCIE1:
  	case BCM_PMB_PCIE2:
 +		if (of_device_is_compatible(pmb->dev->of_node, "brcm,bcm63138-pmb")) {
 +			void __iomem *perf = ioremap(0xfffe8000, 0x200);
 +			if (perf) {
-+				/* Ungate Ethernet, PCIe, USB, WLAN clocks */
-+				writel(readl(perf + 0x04) | 0x800a2420, perf + 0x04);
++				/* Bit 17: PCIE_CLK_EN, Bit 5: WLAN_OCP_CLK_EN */
++				writel(readl(perf + 0x04) | 0x00020020, perf + 0x04);
 +				/* Bit 0: PCIe0, Bit 1: PCIe1 soft reset */
 +				writel(readl(perf + 0x180) | 0x3, perf + 0x180);
 +				iounmap(perf);
@@ -16,26 +16,8 @@
 +		}
  		return bcm_pmb_power_on_zone(pmb, data->bus, data->device, 0);
  	case BCM_PMB_HOST_USB:
-+		if (of_device_is_compatible(pmb->dev->of_node, "brcm,bcm63138-pmb")) {
-+			void __iomem *perf = ioremap(0xfffe8000, 0x200);
-+			if (perf) {
-+				writel(readl(perf + 0x04) | 0x800a2420, perf + 0x04);
-+				iounmap(perf);
-+			}
-+		}
  		return bcm_pmb_power_on_device(pmb, data->bus, data->device);
- 	case BCM_PMB_SATA:
- 		return bcm_pmb_power_on_sata(pmb, data->bus, data->device);
-@@ -319,6 +336,8 @@
- 		pd->genpd.name = e->name;
- 		pd->genpd.power_on = bcm_pmb_power_on;
- 		pd->genpd.power_off = bcm_pmb_power_off;
-+		if (of_device_is_compatible(dev->of_node, "brcm,bcm63138-pmb"))
-+			pd->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
- 
- 		pm_genpd_init(&pd->genpd, NULL, true);
- 		pmb->genpd_onecell_data.domains[e->id] = &pd->genpd;
-@@ -343,6 +362,9 @@
+@@ -343,6 +353,9 @@
  
  static const struct bcm_pmb_pd_data bcm_pmb_bcm63138_data[] = {
  	{ .name = "sata", .id = BCM_PMB_SATA, .bus = 0, .device = 3, },
