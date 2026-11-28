@@ -30,12 +30,13 @@ Connect to your router (`ssh root@192.168.1.1`) and run:
 uclient-fetch -O /etc/apk/keys/vmg8825-kmod.pem \
   https://4d000.github.io/openwrt-zyxel-vmg8825-b50b/public-key.pem
 
-# 2. Add the GitHub Pages kmod-* feed to apk's custom feeds list:
+# 2. Add the GitHub Pages kmod-* feed and disable the non-existent upstream target feed:
 cat <<'EOF' > /etc/apk/repositories.d/customfeeds.list
 https://4d000.github.io/openwrt-zyxel-vmg8825-b50b/targets/bcm63xx_arm/generic/packages/packages.adb
 EOF
+sed -i '/targets\/bcm63xx_arm/s/^/# /' /etc/apk/repositories.d/distfeeds.list
 
-# 3. Refresh package indexes:
+# 3. Refresh package indexes (should report "OK: ... distinct packages available"):
 apk update
 ```
 
@@ -64,6 +65,7 @@ OpenWrt's `sysupgrade` automatically backs up `/etc/apk/repositories.d/` and `/e
 ```sh
 grep -qxF "/etc/apk/keys/vmg8825-kmod.pem" /etc/sysupgrade.conf || echo "/etc/apk/keys/vmg8825-kmod.pem" >> /etc/sysupgrade.conf
 grep -qxF "/etc/apk/repositories.d/customfeeds.list" /etc/sysupgrade.conf || echo "/etc/apk/repositories.d/customfeeds.list" >> /etc/sysupgrade.conf
+grep -qxF "/etc/apk/repositories.d/distfeeds.list" /etc/sysupgrade.conf || echo "/etc/apk/repositories.d/distfeeds.list" >> /etc/sysupgrade.conf
 ```
 
 ---

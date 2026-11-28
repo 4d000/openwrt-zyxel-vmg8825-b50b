@@ -48,8 +48,8 @@ Mainline **OpenWrt (Linux 6.18)** port for the **Zyxel VMG8825-B50B** (also wide
 | **2-Click Return to Stock Zyxel OEM** | Working | Flash any official Zyxel `.bin` directly from LuCI (`platform.sh` handles JFFS2 + `/data` reset) |
 | **Gigabit LAN / WAN Routing + NAT** | Working | **940+ Mbps** line-rate via 4-Core Runner HW NAT (`~5–7%` CPU load!) |
 | **5× Gigabit Managed Switch (DSA)** | Working | Full per-port VLAN filtering (`lan1`–`lan4` + `wan`) |
-| **5 GHz Wi-Fi (BCM43664 4×4 AC)** | Working | Works out of the box (`linux-firmware`); up to **~600 Mbps** with optional local V5.13 blob extract |
-| **2.4 GHz Wi-Fi (BCM43602 3×3 N)** | Working | **151–195 Mbps** TCP (outperforms stock Zyxel OEM) |
+| **5 GHz Wi-Fi (BCM43664 4×4 AC)** | Working | Works out of the box (`linux-firmware`); up to **~600 Mbps** with optional local `V5.13` blob extract |
+| **2.4 GHz Wi-Fi (BCM43602a3 3×3 N)** | Working* | **151–195 Mbps** TCP (outperforms stock OEM). *Requires extracting `43602a3` blob from your own Zyxel `V5.13` firmware (`vmg8825-extract-wifi-fw`), as upstream `linux-firmware` only ships `43602a1`.* |
 | **WireGuard VPN** | Working | **260.8 Mbps** real TCP throughput (4× faster than stock OpenVPN) |
 | **OpenVPN 2.7 DCO (Kernel Offload)** | Working | **208.8 Mbps** real TCP throughput |
 | **USB 3.0 (Storage / UAS / Extroot)** | Working | Full xHCI USB 3.0 + `kmod-usb-storage-uas` |
