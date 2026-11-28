@@ -19,6 +19,10 @@ on:
         description: 'Compile check only (skip creating GitHub Release & Pages deploy)'
         type: boolean
         default: false
+      openwrt_ref:
+        description: 'Optional upstream OpenWrt commit/tag/branch override (blank = pinned tested commit)'
+        required: false
+        default: ''
   push:
     tags:
       - 'v*'
@@ -59,11 +63,13 @@ jobs:
 
       - name: Checkout upstream OpenWrt at pinned commit
         run: |
+          TARGET_REF="${{ inputs.openwrt_ref || env.OPENWRT_COMMIT }}"
+          echo "Checking out upstream OpenWrt ref: ${TARGET_REF}"
           mkdir -p openwrt-src
           git -C openwrt-src init
           git -C openwrt-src remote add origin https://github.com/openwrt/openwrt.git
-          git -C openwrt-src fetch --depth=1 origin "${OPENWRT_COMMIT}"
-          git -C openwrt-src checkout "${OPENWRT_COMMIT}"
+          git -C openwrt-src fetch --depth=1 origin "${TARGET_REF}"
+          git -C openwrt-src checkout FETCH_HEAD
 
       - name: Apply upstream patches and overlay
         run: |

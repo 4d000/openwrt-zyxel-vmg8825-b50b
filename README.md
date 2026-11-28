@@ -8,6 +8,8 @@ Mainline **OpenWrt (Linux 6.18)** port for the **Zyxel VMG8825-B50B** (also wide
 
 > **100% Legal & Open Source:** This repository contains **zero proprietary Zyxel or Broadcom closed-source binaries** (no `cferam`, no OEM Wi-Fi blobs, no private calibration dumps). Public releases use official `linux-firmware` for Wi-Fi and include an open-source zero-dependency Python tool (`scripts/vmg8825_factory_builder.py`) so you assemble your first-time Web GUI installer locally using your **own** router's `cferam` or official Zyxel firmware. Every future OpenWrt upgrade preserves your router's `cferam` automatically.
 
+> **Disclaimer — Use at Your Own Risk:** This project is provided **"AS IS"**, without warranty of any kind (express or implied). Flashing third-party firmware may void your hardware warranty and carries an inherent risk of rendering your device inoperable ("bricking") if instructions are not followed, power is lost during flashing, or hardware variants differ. **You are solely responsible** for backing up your device and for any damage, data loss, or service interruption resulting from using these files or guides. This is an independent community project and is not affiliated with or endorsed by Zyxel, Broadcom, WindTre, or the OpenWrt project.
+
 ---
 
 ## Quick Navigation

@@ -2,6 +2,8 @@
 
 This guide covers **every type of Zyxel VMG8825-B50B user** — whether you only have the standard ISP Web GUI, already have root/supervisor SSH access, or have a 3.3V USB-UART serial cable.
 
+> **Disclaimer — Proceed at Your Own Risk:** Flashing custom firmware is done entirely at your own risk and may void your warranty. While the VMG8825-B50B's dual-bank NAND layout provides a strong safety net, **the authors and contributors are not responsible** for bricked devices, lost factory partitions (`mtd0`), ISP service issues, or any other damage. Read the [Backup Procedure](#3-best-practice-backup-procedure-do-not-skip) carefully and never power off the router while flashing.
+
 ---
 
 ## 1. Choose Your Installation Path
