@@ -3,9 +3,10 @@
 #
 # Zyxel VMG8825-B50B OpenWrt Updater
 # Checks the latest GitHub Release for openwrt-zyxel-vmg8825-b50b, downloads
-# the public GPLv2 squashfs.bin + sha256sums, verifies the SHA-256 checksum,
-# and invokes OpenWrt sysupgrade (preserving /etc/config and the router's own
-# cferam.XXX automatically).
+# the public GPLv2 squashfs.bin + sha256sums via the GitHub Releases Asset API
+# (avoiding github.com's oversized CSP header that overflows uclient-fetch),
+# verifies the SHA-256 checksum, and invokes OpenWrt sysupgrade (preserving
+# /etc/config and the router's own cferam.XXX automatically).
 
 set -eu
 
@@ -39,6 +40,13 @@ EOF
 	esac
 done
 
+get_asset_api_url() {
+	tr '{' '\n' < "$TMP_DIR/release.json" \
+		| grep "\"name\":\"$1\"" \
+		| sed -n 's/.*"url":"\([^"]*\)".*/\1/p' \
+		| head -n 1
+}
+
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
 
@@ -65,10 +73,17 @@ if [ "$CHECK_ONLY" = "1" ]; then
 	exit 0
 fi
 
-BASE_DL="https://github.com/${REPO}/releases/download/${TAG}"
+SHA_URL=$(get_asset_api_url "sha256sums")
+IMG_URL=$(get_asset_api_url "${IMG_NAME}")
+if [ -z "$SHA_URL" ] || [ -z "$IMG_URL" ]; then
+	echo "ERROR: Could not locate release assets (sha256sums / ${IMG_NAME}) in release ${TAG}." >&2
+	rm -rf "$TMP_DIR"
+	exit 1
+fi
+
 echo "[2/4] Downloading sha256sums and ${IMG_NAME} ..."
-uclient-fetch -O "$TMP_DIR/sha256sums" "${BASE_DL}/sha256sums"
-uclient-fetch -O "$TMP_DIR/${IMG_NAME}" "${BASE_DL}/${IMG_NAME}"
+uclient-fetch --header="Accept: application/octet-stream" -O "$TMP_DIR/sha256sums" "$SHA_URL"
+uclient-fetch --header="Accept: application/octet-stream" -O "$TMP_DIR/${IMG_NAME}" "$IMG_URL"
 
 echo "[3/4] Verifying SHA-256 checksum ..."
 EXPECTED=$(grep "${IMG_NAME}" "$TMP_DIR/sha256sums" | awk '{print $1}' | head -n 1)
